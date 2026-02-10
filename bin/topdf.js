@@ -2,13 +2,33 @@
 
 import { Command } from 'commander';
 import { readFile, stat } from 'fs/promises';
-import { resolve, basename, extname, join } from 'path';
+import { resolve, basename, extname, join, dirname } from 'path';
 import chalk from 'chalk';
 import { glob } from 'glob';
 import chokidar from 'chokidar';
+import yaml from 'js-yaml';
 import { Renderer } from '../src/renderer.js';
 
 const program = new Command();
+
+async function loadConfig() {
+  const configPaths = [
+    '.topdfrc',
+    '.topdfrc.json',
+    '.topdfrc.yaml',
+    '.topdfrc.yml'
+  ];
+
+  for (const configPath of configPaths) {
+    try {
+      const content = await readFile(resolve(configPath), 'utf-8');
+      return yaml.load(content);
+    } catch (e) {
+      // Ignore if file doesn't exist
+    }
+  }
+  return {};
+}
 
 program
   .name('topdf')
@@ -20,13 +40,26 @@ program
   .option('-c, --css <path>', 'Custom CSS file path')
   .option('-t, --template <path>', 'Custom HTML template path')
   .option('-m, --margin <margin>', 'Page margin (e.g., 20mm)', '20mm')
+  .option('--header <path>', 'Custom HTML header template path')
+  .option('--footer <path>', 'Custom HTML footer template path')
   .option('--toc', 'Generate a Table of Contents')
   .action(async (inputs, options) => {
+    const config = await loadConfig();
+    const mergedOptions = { ...config, ...options };
+    
+    // Resolve paths from config if they were provided there
+    if (config.css && !options.css) mergedOptions.css = resolve(config.css);
+    if (config.template && !options.template) mergedOptions.template = resolve(config.template);
+    if (config.header && !options.header) mergedOptions.header = resolve(config.header);
+    if (config.footer && !options.footer) mergedOptions.footer = resolve(config.footer);
+
     const renderer = new Renderer({
-      customCss: options.css ? resolve(options.css) : null,
-      template: options.template ? resolve(options.template) : null,
-      margin: options.margin,
-      toc: options.toc
+      customCss: mergedOptions.css ? resolve(mergedOptions.css) : null,
+      template: mergedOptions.template ? resolve(mergedOptions.template) : null,
+      margin: mergedOptions.margin,
+      toc: mergedOptions.toc,
+      headerTemplate: mergedOptions.header ? await readFile(resolve(mergedOptions.header), 'utf-8') : null,
+      footerTemplate: mergedOptions.footer ? await readFile(resolve(mergedOptions.footer), 'utf-8') : null
     });
 
     async function convert(file) {
@@ -36,18 +69,18 @@ program
         if (s.isDirectory()) return;
 
         const markdown = await readFile(inputPath, 'utf-8');
-        let outputPath = options.output;
+        let outputPath = mergedOptions.output;
         
         if (!outputPath || inputs.length > 1 || (await glob(inputs[0])).length > 1) {
           const name = basename(inputPath, extname(inputPath));
-          const dir = (options.output && inputs.length > 1) ? resolve(options.output) : resolve(inputPath, '..');
+          const dir = (mergedOptions.output && inputs.length > 1) ? resolve(mergedOptions.output) : resolve(inputPath, '..');
           outputPath = join(dir, `${name}.pdf`);
         } else {
           outputPath = resolve(outputPath);
         }
 
         console.log(chalk.blue(`Converting ${chalk.bold(file)} → ${chalk.bold(outputPath)}...`));
-        await renderer.generatePdf(markdown, outputPath);
+        await renderer.generatePdf(markdown, outputPath, { basePath: dirname(inputPath) });
         console.log(chalk.green(`✔ Done: ${basename(outputPath)}`));
       } catch (error) {
         console.error(chalk.red('Error:'), error.message);

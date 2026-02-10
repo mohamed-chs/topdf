@@ -20,8 +20,10 @@ The tool is built to be "zero-config" by default while providing deep customizat
     - Margin control.
     - Automatic TOC insertion.
     - Page break support via `<!-- PAGE_BREAK -->`.
+    - Native PDF headers and footers support.
+    - Configuration file support (`.topdfrc`).
 - **Testing**: Suite established using `Vitest`, covering both unit logic (HTML rendering) and integration (PDF generation).
 
-**NOTE: THE PROJECT IS CURRENTLY IN THE "POLISHING" PHASE. CORE FUNCTIONALITY IS STABLE, BUT REFINEMENTS TO CSS, IMAGE RESOLUTION, AND METADATA ARE ONGOING.**
+**NOTE: THE PROJECT HAS COMPLETED PHASE 4. CORE FUNCTIONALITY IS ROBUST, AND ADVANCED POLISHING FEATURES (HEADERS, IMAGES, CONFIG) ARE IMPLEMENTED.**
 
 **NOTE: THE `package.json` IS CONFIGURED FOR ESM (`"type": "module"`). ALL NEW FILES MUST FOLLOW ESM CONVENTIONS.**

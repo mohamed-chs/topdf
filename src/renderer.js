@@ -73,272 +73,196 @@ export class Renderer {
       '</ul></div>';
   }
 
-    async renderHtml(markdown) {
+  async renderHtml(markdown, overrides = {}) {
+    const options = { ...this.options, ...overrides };
+    let { data, content: mdContent } = this.parseFrontmatter(markdown);
 
-      let { data, content: mdContent } = this.parseFrontmatter(markdown);
-
-      
-
-      // Generate TOC if requested or if [TOC] placeholder exists
-
-      let tocHtml = '';
-
-      if (this.options.toc || mdContent.includes('[TOC]')) {
-
-        tocHtml = this.generateToc(mdContent);
-
-        if (mdContent.includes('[TOC]')) {
-
-          mdContent = mdContent.replace('[TOC]', tocHtml);
-
-          tocHtml = ''; // Don't add it twice
-
-        }
-
+    // Generate TOC if requested or if [TOC] placeholder exists
+    let tocHtml = '';
+    if (options.toc || mdContent.includes('[TOC]')) {
+      tocHtml = this.generateToc(mdContent);
+      if (mdContent.includes('[TOC]')) {
+        mdContent = mdContent.replace('[TOC]', tocHtml);
+        tocHtml = ''; // Don't add it twice
       }
+    }
 
-  
-
-      // Replace PAGE_BREAK comments
-
-      const processedMd = mdContent.replace(/<!--\s*PAGE_BREAK\s*-->/g, '<div class="page-break"></div>');
-
-      
-
-      let htmlContent = await this.marked.parse(processedMd);
-
-      if (tocHtml) {
-
-        htmlContent = tocHtml + htmlContent;
-
-      }
-
-  
-
-      const defaultCss = await readFile(join(__dirname, 'styles/default.css'), 'utf-8');
-
-      let extraCss = '';
-
-      if (this.options.customCss) {
-
-        try {
-
-          extraCss = await readFile(this.options.customCss, 'utf-8');
-
-        } catch (e) {
-
-          console.warn(`Failed to load custom CSS: ${e.message}`);
-
-        }
-
-      }
-
-  
-
-      const title = data.title || 'Markdown Document';
-
-      
-
-      if (this.options.template) {
-
-        try {
-
-          let template = await readFile(this.options.template, 'utf-8');
-
-          return template
-
-            .replace('{{title}}', title)
-
-            .replace('{{css}}', defaultCss + '\n' + extraCss)
-
-            .replace('{{content}}', htmlContent);
-
-        } catch (e) {
-
-          console.warn(`Failed to load template: ${e.message}. Using default.`);
-
-        }
-
-      }
-
-      
-
-      // Basic HTML template with MathJax
-
-      return `
-
-  <!DOCTYPE html>
-
-  <html>
-
-  <head>
-
-    <meta charset="UTF-8">
-
-    <title>${title}</title>
-
-    <style>
-
-      ${defaultCss}
-
-      ${extraCss}
-
-    </style>
-
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
-
-    <script>
-
-      window.MathJax = {
-
-        tex: {
-
-          inlineMath: [['
-
-  async generatePdf(markdown, outputPath) {
-    const html = await this.renderHtml(markdown);
+    // Replace PAGE_BREAK comments
+    const processedMd = mdContent.replace(/<!--\s*PAGE_BREAK\s*-->/g, '<div class="page-break"></div>');
     
-    const browser = await puppeteer.launch({
-      headless: 'new',
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
-    });
-    
-    const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: 'networkidle0' });
-    
-    // Wait for MathJax to finish rendering
-    await page.evaluate(async () => {
-      if (window.MathJax && window.MathJax.typesetPromise) {
-        await window.MathJax.typesetPromise();
-      }
-    });
+    let htmlContent = await this.marked.parse(processedMd);
+    if (tocHtml) {
+      htmlContent = tocHtml + htmlContent;
+    }
 
-    await page.pdf({
-      path: outputPath,
-      format: 'A4',
-      margin: {
-        top: this.options.margin || '20mm',
-        right: this.options.margin || '20mm',
-        bottom: this.options.margin || '20mm',
-        left: this.options.margin || '20mm'
+    const defaultCssPath = join(__dirname, 'styles/default.css');
+    const defaultCss = await readFile(defaultCssPath, 'utf-8');
+    let extraCss = '';
+    if (options.customCss) {
+      try {
+        extraCss = await readFile(options.customCss, 'utf-8');
+      } catch (e) {
+        console.warn(`Failed to load custom CSS: ${e.message}`);
+      }
+    }
+
+    const title = data.title || 'Markdown Document';
+    const basePath = options.basePath ? `<base href="file://${options.basePath}/">` : '';
+    
+    if (options.template) {
+      try {
+        let template = await readFile(options.template, 'utf-8');
+        return template
+          .replace('{{title}}', title)
+          .replace('{{base}}', basePath)
+          .replace('{{css}}', defaultCss + '\n' + extraCss)
+          .replace('{{content}}', htmlContent);
+      } catch (e) {
+        console.warn(`Failed to load template: ${e.message}. Using default.`);
+      }
+    }
+    
+    // Basic HTML template with MathJax
+    return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  ${basePath}
+  <title>${title}</title>
+  <style>
+    ${defaultCss}
+    ${extraCss}
+  </style>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+  <script>
+    window.MathJax = {
+      tex: {
+        inlineMath: [['$', '$'], ['\\(', '\\)']],
+        displayMath: [['$$', '$$'], ['\\[', '\\]']],
+        processEscapes: true,
+        processEnvironments: true
       },
-      printBackground: true
-    });
-
-    await browser.close();
-  }
-}
-, '
-
-  async generatePdf(markdown, outputPath) {
-    const html = await this.renderHtml(markdown);
-    
-    const browser = await puppeteer.launch({
-      headless: 'new',
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
-    });
-    
-    const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: 'networkidle0' });
-    
-    // Wait for MathJax to finish rendering
-    await page.evaluate(async () => {
-      if (window.MathJax && window.MathJax.typesetPromise) {
-        await window.MathJax.typesetPromise();
-      }
-    });
-
-    await page.pdf({
-      path: outputPath,
-      format: 'A4',
-      margin: {
-        top: this.options.margin || '20mm',
-        right: this.options.margin || '20mm',
-        bottom: this.options.margin || '20mm',
-        left: this.options.margin || '20mm'
+      options: {
+        skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre']
       },
-      printBackground: true
-    });
-
-    await browser.close();
+      svg: {
+        fontCache: 'global'
+      }
+    };
+  </script>
+  <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+</head>
+<body>
+  <div class="markdown-body">
+    ${htmlContent}
+  </div>
+</body>
+</html>`;
   }
-}
-], ['\\(', '\\)']],
 
-          displayMath: [['$', '$'], ['\\[', '\\]']],
+    async generatePdf(markdown, outputPath, overrides = {}) {
 
-          processEscapes: true,
+      const html = await this.renderHtml(markdown, overrides);
 
-          processEnvironments: true
+      const options = { ...this.options, ...overrides };
 
-        },
+      
 
-        options: {
+      const browser = await puppeteer.launch({
 
-          skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre']
+        headless: 'new',
 
-        },
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
 
-        svg: {
+      });
 
-          fontCache: 'global'
+      
+
+      const page = await browser.newPage();
+
+      await page.setContent(html, { waitUntil: 'networkidle0' });
+
+      
+
+      // Wait for MathJax to finish rendering
+
+      await page.evaluate(async () => {
+
+        if (window.MathJax && window.MathJax.typesetPromise) {
+
+          await window.MathJax.typesetPromise();
 
         }
 
-      };
+      });
 
-    </script>
+  
 
-    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+          await page.pdf({
 
-  </head>
+  
 
-  <body>
+            path: outputPath,
 
-    <div class="markdown-body">
+  
 
-      ${htmlContent}
+            format: 'A4',
 
-    </div>
+  
 
-  </body>
+            margin: {
 
-  </html>`;
+  
+
+              top: options.margin || '20mm',
+
+  
+
+              right: options.margin || '20mm',
+
+  
+
+              bottom: options.margin || '20mm',
+
+  
+
+              left: options.margin || '20mm'
+
+  
+
+            },
+
+  
+
+            printBackground: true,
+
+  
+
+            displayHeaderFooter: !!(options.headerTemplate || options.footerTemplate),
+
+  
+
+            headerTemplate: options.headerTemplate || '<span></span>',
+
+  
+
+            footerTemplate: options.footerTemplate || '<span></span>'
+
+  
+
+          });
+
+  
+
+      
+
+  
+
+      await browser.close();
 
     }
 
-  
-
-  async generatePdf(markdown, outputPath) {
-    const html = await this.renderHtml(markdown);
-    
-    const browser = await puppeteer.launch({
-      headless: 'new',
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
-    });
-    
-    const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: 'networkidle0' });
-    
-    // Wait for MathJax to finish rendering
-    await page.evaluate(async () => {
-      if (window.MathJax && window.MathJax.typesetPromise) {
-        await window.MathJax.typesetPromise();
-      }
-    });
-
-    await page.pdf({
-      path: outputPath,
-      format: 'A4',
-      margin: {
-        top: this.options.margin || '20mm',
-        right: this.options.margin || '20mm',
-        bottom: this.options.margin || '20mm',
-        left: this.options.margin || '20mm'
-      },
-      printBackground: true
-    });
-
-    await browser.close();
   }
-}
+
+  

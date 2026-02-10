@@ -22,14 +22,14 @@ A high-quality, feature-rich CLI tool for converting Markdown to PDF using Node.
 - [x] Custom CSS support via CLI flags.
 - [x] Custom HTML templates.
 
-## Phase 4: Quality of Life & Polish (In Progress)
+## Phase 4: Quality of Life & Polish (Completed)
 - [x] Page numbering and headers/footers (Basic margin support added).
 - [x] Table of Contents (TOC) generation.
 - [x] Metadata extraction (Title, Author from Frontmatter).
 - [x] Detailed progress logging and error handling (Improved with ora/chalk).
-- [ ] Advanced Headers/Footers (Puppeteer native support).
-- [ ] Improved Image Handling (Local path resolution).
-- [ ] Configuration file support (.topdfrc).
+- [x] Advanced Headers/Footers (Puppeteer native support).
+- [x] Improved Image Handling (Local path resolution).
+- [x] Configuration file support (.topdfrc).
 
 ## Phase 5: Verification & Distribution
 - [x] Comprehensive integration tests.

@@ -69,8 +69,44 @@ title: Custom Title
       template: templatePath
     });
     
-    const md = '# Hello';
-    const html = await rendererWithTemplate.renderHtml(md);
-    expect(html).toContain('Markdown Document - <h1 id="hello">Hello</h1>');
-  });
-});
+        const md = '# Hello';
+    
+        const html = await rendererWithTemplate.renderHtml(md);
+    
+        expect(html).toContain('Markdown Document - <h1 id="hello">Hello</h1>');
+    
+      });
+    
+    
+    
+      it('should inject base tag when basePath is provided', async () => {
+    
+        const rendererWithBase = new Renderer({
+    
+          basePath: '/some/path'
+    
+        });
+    
+        const md = '# Hello';
+    
+        const html = await rendererWithBase.renderHtml(md);
+    
+        expect(html).toContain('<base href="file:///some/path/">');
+    
+      });
+    
+    
+    
+      it('should override basePath in renderHtml', async () => {
+    
+        const md = '# Hello';
+    
+        const html = await renderer.renderHtml(md, { basePath: '/override/path' });
+    
+        expect(html).toContain('<base href="file:///override/path/">');
+    
+      });
+    
+    });
+    
+    
