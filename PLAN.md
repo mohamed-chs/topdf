@@ -35,3 +35,9 @@ A high-quality, feature-rich CLI tool for converting Markdown to PDF using Node.
 - [x] Comprehensive integration tests.
 - [ ] Documentation and usage examples.
 - [ ] Performance optimization for large files.
+
+## Phase 6: Refactoring & Simplification (Completed)
+- [x] Aggressively eliminated dead code and unused dependencies (`fs-extra`, `mathjax-full`, `ora`).
+- [x] Simplified `src/renderer.js` and `bin/topdf.js` for better readability and maintenance.
+- [x] Optimized resource loading (CSS, templates).
+- [x] Updated to modern Puppeteer standards.

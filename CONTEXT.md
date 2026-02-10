@@ -10,8 +10,8 @@
 - **PDF Engine**: `puppeteer`
 - **Syntax Highlighting**: `highlight.js`
 - **Math**: `mathjax`
-- **Progress & CLI UI**: `ora`, `chalk`
-- **File System**: `fs-extra`, `glob`
+- **Progress & CLI UI**: `chalk`
+- **File System**: `glob`
 - **Styles**: Custom CSS injected during rendering.
 
 ## Key Design Goals

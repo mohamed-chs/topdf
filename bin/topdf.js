@@ -12,20 +12,11 @@ import { Renderer } from '../src/renderer.js';
 const program = new Command();
 
 async function loadConfig() {
-  const configPaths = [
-    '.topdfrc',
-    '.topdfrc.json',
-    '.topdfrc.yaml',
-    '.topdfrc.yml'
-  ];
-
-  for (const configPath of configPaths) {
+  const configPaths = ['.topdfrc', '.topdfrc.json', '.topdfrc.yaml', '.topdfrc.yml'];
+  for (const p of configPaths) {
     try {
-      const content = await readFile(resolve(configPath), 'utf-8');
-      return yaml.load(content);
-    } catch (e) {
-      // Ignore if file doesn't exist
-    }
+      return yaml.load(await readFile(resolve(p), 'utf-8'));
+    } catch {}
   }
   return {};
 }
@@ -39,41 +30,34 @@ program
   .option('-w, --watch', 'Watch for changes and reconvert')
   .option('-c, --css <path>', 'Custom CSS file path')
   .option('-t, --template <path>', 'Custom HTML template path')
-  .option('-m, --margin <margin>', 'Page margin (e.g., 20mm)', '20mm')
+  .option('-m, --margin <margin>', 'Page margin', '20mm')
   .option('--header <path>', 'Custom HTML header template path')
   .option('--footer <path>', 'Custom HTML footer template path')
   .option('--toc', 'Generate a Table of Contents')
   .action(async (inputs, options) => {
     const config = await loadConfig();
-    const mergedOptions = { ...config, ...options };
+    const opts = { ...config, ...options };
     
-    // Resolve paths from config if they were provided there
-    if (config.css && !options.css) mergedOptions.css = resolve(config.css);
-    if (config.template && !options.template) mergedOptions.template = resolve(config.template);
-    if (config.header && !options.header) mergedOptions.header = resolve(config.header);
-    if (config.footer && !options.footer) mergedOptions.footer = resolve(config.footer);
-
     const renderer = new Renderer({
-      customCss: mergedOptions.css ? resolve(mergedOptions.css) : null,
-      template: mergedOptions.template ? resolve(mergedOptions.template) : null,
-      margin: mergedOptions.margin,
-      toc: mergedOptions.toc,
-      headerTemplate: mergedOptions.header ? await readFile(resolve(mergedOptions.header), 'utf-8') : null,
-      footerTemplate: mergedOptions.footer ? await readFile(resolve(mergedOptions.footer), 'utf-8') : null
+      customCss: opts.css ? resolve(opts.css) : null,
+      template: opts.template ? resolve(opts.template) : null,
+      margin: opts.margin,
+      toc: opts.toc,
+      headerTemplate: opts.header ? await readFile(resolve(opts.header), 'utf-8') : null,
+      footerTemplate: opts.footer ? await readFile(resolve(opts.footer), 'utf-8') : null
     });
 
     async function convert(file) {
       try {
         const inputPath = resolve(file);
-        const s = await stat(inputPath);
-        if (s.isDirectory()) return;
+        if ((await stat(inputPath)).isDirectory()) return;
 
         const markdown = await readFile(inputPath, 'utf-8');
-        let outputPath = mergedOptions.output;
+        let outputPath = opts.output;
         
         if (!outputPath || inputs.length > 1 || (await glob(inputs[0])).length > 1) {
           const name = basename(inputPath, extname(inputPath));
-          const dir = (mergedOptions.output && inputs.length > 1) ? resolve(mergedOptions.output) : resolve(inputPath, '..');
+          const dir = (opts.output && inputs.length > 1) ? resolve(opts.output) : dirname(inputPath);
           outputPath = join(dir, `${name}.pdf`);
         } else {
           outputPath = resolve(outputPath);
@@ -87,39 +71,26 @@ program
       }
     }
 
-    const initialFiles = [];
-    for (const input of inputs) {
-      const matches = await glob(input);
-      initialFiles.push(...matches.filter(f => {
-        const ext = extname(f).toLowerCase();
-        return ext === '.md' || ext === '.markdown';
-      }));
-    }
+    const files = (await Promise.all(inputs.map(i => glob(i))))
+      .flat()
+      .filter(f => /\.(md|markdown)$/i.test(f));
 
-    if (initialFiles.length === 0) {
+    if (files.length === 0) {
       console.error(chalk.red('Error: No input files found.'));
       process.exit(1);
     }
 
-    // Initial conversion
-    for (const file of initialFiles) {
-      await convert(file);
-    }
+    for (const file of files) await convert(file);
 
     if (options.watch) {
       console.log(chalk.yellow('\nWatching for changes... (Press Ctrl+C to stop)'));
-      
-      const watcher = chokidar.watch(inputs, {
-        ignored: /(^|[\/\\])\../, // ignore dotfiles
-        persistent: true
-      });
-
-      watcher.on('change', async (path) => {
-        console.log(chalk.cyan(`\nChange detected in ${path}`));
-        await convert(path);
-      });
+      chokidar.watch(inputs, { ignored: /(^|[\/\\])\../, persistent: true })
+        .on('change', path => {
+          console.log(chalk.cyan(`\nChange detected in ${path}`));
+          convert(path);
+        });
     } else {
-      console.log(chalk.green(`\n✔ Successfully converted ${initialFiles.length} file(s).`));
+      console.log(chalk.green(`\n✔ Successfully converted ${files.length} file(s).`));
     }
   });
 
