@@ -11,6 +11,7 @@ import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_CSS = await readFile(join(__dirname, 'styles/default.css'), 'utf-8');
+const HIGHLIGHT_CSS = await readFile(join(__dirname, 'styles/github.css'), 'utf-8');
 
 export class Renderer {
   constructor(options = {}) {
@@ -18,8 +19,11 @@ export class Renderer {
       margin: '20mm',
       ...options
     };
-    
-    this.marked = new Marked()
+    this.browser = null;
+  }
+
+  createMarkedInstance() {
+    return new Marked()
       .use(markedHighlight({
         langPrefix: 'hljs language-',
         highlight(code, lang) {
@@ -33,6 +37,22 @@ export class Renderer {
         gfm: true,
         breaks: true,
       });
+  }
+
+  async init() {
+    if (!this.browser) {
+      this.browser = await puppeteer.launch({
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
+      });
+    }
+  }
+
+  async close() {
+    if (this.browser) {
+      await this.browser.close();
+      this.browser = null;
+    }
   }
 
   parseFrontmatter(markdown) {
@@ -50,15 +70,45 @@ export class Renderer {
     }
   }
 
-  generateToc(markdown) {
-    const headings = markdown.split('\n')
-      .map(line => line.match(/^(#{1,6})\s+(.+)$/))
-      .filter(Boolean)
-      .map(match => ({
-        level: match[1].length,
-        text: match[2].trim(),
-        id: match[2].trim().toLowerCase().replace(/[^\w]+/g, '-')
-      }));
+  slugify(text, seen) {
+    let slug = text
+      .toLowerCase()
+      .trim()
+      .replace(/<[^>]+>/g, '') 
+      .replace(/[^\w\s-]/g, '')
+      .replace(/[\s_-]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+
+    const originalSlug = slug;
+    let count = 1;
+    while (seen.has(slug)) {
+      slug = `${originalSlug}-${count}`;
+      count++;
+    }
+    seen.add(slug);
+    return slug;
+  }
+
+  generateToc(marked, tokens) {
+    const headings = [];
+    const seen = new Set();
+    
+    const walk = (items) => {
+      for (const token of items) {
+        if (token.type === 'heading') {
+          headings.push({
+            level: token.depth,
+            text: token.text,
+            id: this.slugify(token.text, seen)
+          });
+        }
+        if (token.tokens) {
+          walk(token.tokens);
+        }
+      }
+    };
+
+    walk(tokens);
 
     if (headings.length === 0) return '';
 
@@ -73,17 +123,24 @@ export class Renderer {
     const options = { ...this.options, ...overrides };
     let { data, content } = this.parseFrontmatter(markdown);
 
+    content = content.replace(/<!--\s*PAGE_BREAK\s*-->/g, '<div class="page-break"></div>');
+
+    const marked = this.createMarkedInstance();
+    const tokens = marked.lexer(content);
+    
     let tocHtml = '';
-    if (options.toc || content.includes('[TOC]')) {
-      tocHtml = this.generateToc(content);
-      if (content.includes('[TOC]')) {
-        content = content.replace('[TOC]', tocHtml);
-        tocHtml = '';
-      }
+    if (options.toc) {
+      tocHtml = this.generateToc(marked, tokens);
     }
 
-    const processedMd = content.replace(/<!--\s*PAGE_BREAK\s*-->/g, '<div class="page-break"></div>');
-    let htmlContent = await this.marked.parse(processedMd);
+    let htmlContent = marked.parser(tokens);
+    
+    if (htmlContent.includes('[TOC]')) {
+      if (!tocHtml) tocHtml = this.generateToc(marked, tokens);
+      htmlContent = htmlContent.replace('[TOC]', tocHtml);
+      tocHtml = '';
+    }
+
     if (tocHtml) htmlContent = tocHtml + htmlContent;
 
     let extraCss = '';
@@ -97,6 +154,7 @@ export class Renderer {
 
     const title = data.title || 'Markdown Document';
     const basePath = options.basePath ? `<base href="file://${options.basePath}/">` : '';
+    const combinedCss = DEFAULT_CSS + '\n' + HIGHLIGHT_CSS + '\n' + extraCss;
 
     if (options.template) {
       try {
@@ -104,7 +162,7 @@ export class Renderer {
         return template
           .replace('{{title}}', title)
           .replace('{{base}}', basePath)
-          .replace('{{css}}', DEFAULT_CSS + '\n' + extraCss)
+          .replace('{{css}}', combinedCss)
           .replace('{{content}}', htmlContent);
       } catch (e) {
         console.warn(`Failed to load template: ${e.message}. Using default.`);
@@ -117,8 +175,7 @@ export class Renderer {
   <meta charset="UTF-8">
   ${basePath}
   <title>${title}</title>
-  <style>${DEFAULT_CSS}${extraCss}</style>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+  <style>${combinedCss}</style>
   <script>
     window.MathJax = {
       tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$'], ['\\[', '\\]']] },
@@ -135,13 +192,10 @@ export class Renderer {
     const options = { ...this.options, ...overrides };
     const html = await this.renderHtml(markdown, options);
 
-    const browser = await puppeteer.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
-    });
+    await this.init();
 
+    const page = await this.browser.newPage();
     try {
-      const page = await browser.newPage();
       await page.setContent(html, { waitUntil: 'networkidle0' });
 
       await page.evaluate(async () => {
@@ -165,9 +219,7 @@ export class Renderer {
         footerTemplate: options.footerTemplate || '<span></span>'
       });
     } finally {
-      await browser.close();
+      await page.close();
     }
   }
 }
-
-  

@@ -38,13 +38,27 @@ program
     const config = await loadConfig();
     const opts = { ...config, ...options };
     
-    const renderer = new Renderer({
-      customCss: opts.css ? resolve(opts.css) : null,
-      template: opts.template ? resolve(opts.template) : null,
-      margin: opts.margin,
-      toc: opts.toc,
-      headerTemplate: opts.header ? await readFile(resolve(opts.header), 'utf-8') : null,
-      footerTemplate: opts.footer ? await readFile(resolve(opts.footer), 'utf-8') : null
+    const files = (await Promise.all(inputs.map(i => glob(i))))
+      .flat()
+      .filter(f => /\.(md|markdown)$/i.test(f));
+
+    if (files.length === 0) {
+      console.error(chalk.red('Error: No input files found.'));
+      process.exit(1);
+    }
+
+    // Reuse a single browser instance if possible, but Marked instance must be fresh
+    // Or we find a way to reset Marked state. 
+    // Given the issues with extensions, creating a fresh Renderer is safest.
+    // However, we want to reuse the Puppeteer browser for performance.
+    
+    const sharedRenderer = new Renderer({
+        customCss: opts.css ? resolve(opts.css) : null,
+        template: opts.template ? resolve(opts.template) : null,
+        margin: opts.margin,
+        toc: opts.toc,
+        headerTemplate: opts.header ? await readFile(resolve(opts.header), 'utf-8') : null,
+        footerTemplate: opts.footer ? await readFile(resolve(opts.footer), 'utf-8') : null
     });
 
     async function convert(file) {
@@ -55,29 +69,39 @@ program
         const markdown = await readFile(inputPath, 'utf-8');
         let outputPath = opts.output;
         
-        if (!outputPath || inputs.length > 1 || (await glob(inputs[0])).length > 1) {
+        if (!outputPath) {
           const name = basename(inputPath, extname(inputPath));
-          const dir = (opts.output && inputs.length > 1) ? resolve(opts.output) : dirname(inputPath);
-          outputPath = join(dir, `${name}.pdf`);
+          outputPath = join(dirname(inputPath), `${name}.pdf`);
         } else {
           outputPath = resolve(outputPath);
+          try {
+            const s = await stat(outputPath);
+            if (s.isDirectory()) {
+              const name = basename(inputPath, extname(inputPath));
+              outputPath = join(outputPath, `${name}.pdf`);
+            } else if (files.length > 1) {
+              const name = basename(inputPath, extname(inputPath));
+              outputPath = join(dirname(outputPath), `${name}.pdf`);
+            }
+          } catch (e) {
+            if (files.length > 1 && !extname(outputPath)) {
+              const name = basename(inputPath, extname(inputPath));
+              outputPath = join(outputPath, `${name}.pdf`);
+            }
+          }
         }
 
         console.log(chalk.blue(`Converting ${chalk.bold(file)} → ${chalk.bold(outputPath)}...`));
-        await renderer.generatePdf(markdown, outputPath, { basePath: dirname(inputPath) });
+        
+        // CRITICAL: We need a fresh Marked instance but want to keep the browser.
+        // Let's modify Renderer to allow resetting its Marked instance or just use a new one.
+        // For now, let's see if creating a new Renderer per file but sharing the browser works.
+        
+        await sharedRenderer.generatePdf(markdown, outputPath, { basePath: dirname(inputPath) });
         console.log(chalk.green(`✔ Done: ${basename(outputPath)}`));
       } catch (error) {
         console.error(chalk.red('Error:'), error.message);
       }
-    }
-
-    const files = (await Promise.all(inputs.map(i => glob(i))))
-      .flat()
-      .filter(f => /\.(md|markdown)$/i.test(f));
-
-    if (files.length === 0) {
-      console.error(chalk.red('Error: No input files found.'));
-      process.exit(1);
     }
 
     for (const file of files) await convert(file);
@@ -85,11 +109,12 @@ program
     if (options.watch) {
       console.log(chalk.yellow('\nWatching for changes... (Press Ctrl+C to stop)'));
       chokidar.watch(inputs, { ignored: /(^|[\/\\])\../, persistent: true })
-        .on('change', path => {
+        .on('change', async path => {
           console.log(chalk.cyan(`\nChange detected in ${path}`));
-          convert(path);
+          await convert(path);
         });
     } else {
+      await sharedRenderer.close();
       console.log(chalk.green(`\n✔ Successfully converted ${files.length} file(s).`));
     }
   });

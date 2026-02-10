@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { Renderer } from '../src/renderer.js';
 import { resolve, join, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -6,7 +6,10 @@ import { fileURLToPath } from 'url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 describe('Renderer', () => {
-  const renderer = new Renderer();
+  let renderer;
+  beforeEach(() => {
+    renderer = new Renderer();
+  });
 
   it('should parse frontmatter', () => {
     const md = `---
