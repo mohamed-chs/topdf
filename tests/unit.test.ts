@@ -6,12 +6,12 @@ import { fileURLToPath } from 'url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 describe('Renderer', () => {
-  let r;
+  let r: Renderer;
   beforeEach(() => { r = new Renderer(); });
 
   it('parses frontmatter', () => {
     const { data, content } = r.parseFrontmatter('---\nt: H\n---\n# W');
-    expect(data.t).toBe('H');
+    expect(data['t']).toBe('H');
     expect(content.trim()).toBe('# W');
   });
 

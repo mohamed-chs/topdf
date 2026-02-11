@@ -1,15 +1,18 @@
 {
   "name": "topdf",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "scripts": {
-    "test": "vitest run"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "description": "Convert Markdown to high-quality PDF",
   "type": "module",
+  "bin": {
+    "topdf": "./dist/bin/topdf.js"
+  },
+  "main": "./dist/src/renderer.js",
+  "types": "./dist/src/renderer.d.ts",
+  "scripts": {
+    "build": "tsc && mkdir -p dist/src/styles && cp src/styles/*.css dist/src/styles/",
+    "test": "vitest run",
+    "dev": "tsx bin/topdf.ts"
+  },
   "dependencies": {
     "chalk": "^5.6.2",
     "chokidar": "^5.0.0",
@@ -25,6 +28,10 @@
     "puppeteer": "^24.37.2"
   },
   "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^25.2.3",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
     "vitest": "^4.0.18"
   }
 }

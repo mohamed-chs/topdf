@@ -3,11 +3,14 @@ import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { execSync } from 'child_process';
 import { join, resolve } from 'path';
 
-const bin = resolve('bin/topdf.js');
+// Testing the compiled output
+const bin = resolve('dist/bin/topdf.js');
 const out = resolve('tests/output_cli');
 
 describe('CLI', () => {
-  beforeAll(() => { if (!existsSync(out)) mkdirSync(out, { recursive: true }); });
+  beforeAll(() => { 
+    if (!existsSync(out)) mkdirSync(out, { recursive: true }); 
+  });
 
   it('converts single file', { timeout: 30000 }, () => {
     execSync(`node ${bin} examples/test.md -o ${out}/test.pdf`);

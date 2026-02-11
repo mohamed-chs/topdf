@@ -40,5 +40,8 @@ Supports `.topdfrc` (JSON or YAML) for persistent settings.
 ## Development
 ```bash
 npm install
+npm run build
 npm test
+# Run in dev mode without build
+npm run dev -- input.md
 ```

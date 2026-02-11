@@ -7,20 +7,45 @@ import { glob } from 'glob';
 import chokidar from 'chokidar';
 import yaml from 'js-yaml';
 import { Renderer } from '../src/renderer.js';
+import type { RendererOptions } from '../src/types.js';
+
+interface CliOptions {
+  output?: string;
+  watch?: boolean;
+  css?: string;
+  template?: string;
+  margin?: string;
+  format?: string;
+  header?: string;
+  footer?: string;
+  toc?: boolean;
+  tocDepth?: number;
+  math?: boolean;
+}
+
+interface ConfigFile extends RendererOptions {
+  header?: string;
+  footer?: string;
+  css?: string;
+}
 
 const program = new Command();
-const loadConfig = async () => {
+const loadConfig = async (): Promise<ConfigFile> => {
   for (const p of ['.topdfrc', '.topdfrc.json', '.topdfrc.yaml', '.topdfrc.yml']) {
     try {
       const configPath = resolve(p);
-      const config = yaml.load(await readFile(configPath, 'utf-8'));
+      const config = yaml.load(await readFile(configPath, 'utf-8')) as ConfigFile;
+      if (!config) continue;
+      
       const configDir = dirname(configPath);
       if (config.css) config.css = resolve(configDir, config.css);
       if (config.template) config.template = resolve(configDir, config.template);
       if (config.header) config.header = resolve(configDir, config.header);
       if (config.footer) config.footer = resolve(configDir, config.footer);
       return config;
-    } catch {}
+    } catch {
+      // Ignore errors for missing or invalid config files
+    }
   }
   return {};
 };
@@ -41,24 +66,35 @@ program
   .option('--toc', 'Generate Table of Contents')
   .option('--toc-depth <depth>', 'Table of Contents depth', (v) => parseInt(v, 10), 6)
   .option('--no-math', 'Disable MathJax')
-  .action(async (inputs, options) => {
-    const opts = { ...await loadConfig(), ...options };
-    const getFiles = async () => {
-      const expanded = await Promise.all(inputs.map(async i => {
+  .action(async (inputs: string[], options: CliOptions) => {
+    const config = await loadConfig();
+    const opts = { ...config, ...options };
+    
+    const getFiles = async (): Promise<string[]> => {
+      const expanded = await Promise.all(inputs.map(async (i: string) => {
         try {
           const s = await stat(i);
           if (s.isDirectory()) return glob(join(i, '**/*.{md,markdown}'));
-        } catch {}
+        } catch {
+          // Ignore
+        }
         return glob(i);
       }));
       return [...new Set(expanded.flat().filter(f => /\.(md|markdown)$/i.test(f)))];
     };
     
-    let files = await getFiles();
-    if (!files.length) { console.error(chalk.red('Error: No input files found.')); process.exit(1); }
-    if (files.length > 1 && opts.output?.endsWith('.pdf')) { console.error(chalk.red('Error: Output path cannot be a .pdf file for multiple inputs.')); process.exit(1); }
+    const files = await getFiles();
+    if (!files.length) { 
+      console.error(chalk.red('Error: No input files found.')); 
+      process.exit(1); 
+    }
+    if (files.length > 1 && opts.output?.endsWith('.pdf')) { 
+      console.error(chalk.red('Error: Output path cannot be a .pdf file for multiple inputs.')); 
+      process.exit(1); 
+    }
 
-    const readTpl = async (p) => p ? readFile(resolve(p), 'utf-8') : null;
+    const readTpl = async (p?: string): Promise<string | null> => p ? readFile(resolve(p), 'utf-8') : null;
+    
     const renderer = new Renderer({
       customCss: opts.css ? resolve(opts.css) : null,
       template: opts.template ? resolve(opts.template) : null,
@@ -71,14 +107,17 @@ program
       footerTemplate: await readTpl(opts.footer)
     });
 
-    let [success, fail] = [0, 0];
-    const convert = async (file) => {
+    let successCount = 0;
+    let failCount = 0;
+
+    const convert = async (file: string): Promise<void> => {
       try {
         const input = resolve(file);
-        if ((await stat(input)).isDirectory()) return;
+        const inputStat = await stat(input);
+        if (inputStat.isDirectory()) return;
 
         const out = opts.output ? resolve(opts.output) : null;
-        let outputPath;
+        let outputPath: string;
 
         if (out) {
           const outExists = await stat(out).catch(() => null);
@@ -97,17 +136,22 @@ program
         console.log(chalk.blue(`Converting ${chalk.bold(file)} → ${chalk.bold(outputPath)}...`));
         await renderer.generatePdf(await readFile(input, 'utf-8'), outputPath, { basePath: dirname(input) });
         console.log(chalk.green(`✔ Done: ${basename(outputPath)}`));
-        success++;
-      } catch (e) { console.error(chalk.red('Error:'), e.message); fail++; }
+        successCount++;
+      } catch (e: unknown) { 
+        const error = e as Error;
+        console.error(chalk.red('Error:'), error.message); 
+        failCount++; 
+      }
     };
 
     for (const f of files) await convert(f);
 
-    const cleanup = async () => {
+    const cleanup = async (): Promise<void> => {
       console.log(chalk.yellow('\nGracefully shutting down...'));
       await renderer.close();
       process.exit(0);
     };
+    
     process.on('SIGINT', cleanup);
     process.on('SIGTERM', cleanup);
 
@@ -121,8 +165,11 @@ program
       });
     } else {
       await renderer.close();
-      if (success) console.log(chalk.green(`\n✔ Successfully converted ${success} file(s).`));
-      if (fail) { console.log(chalk.red(`\n✖ Failed to convert ${fail} file(s).`)); process.exit(1); }
+      if (successCount) console.log(chalk.green(`\n✔ Successfully converted ${successCount} file(s).`));
+      if (failCount) { 
+        console.log(chalk.red(`\n✖ Failed to convert ${failCount} file(s).`)); 
+        process.exit(1); 
+      }
     }
   });
 
