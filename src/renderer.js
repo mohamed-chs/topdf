@@ -9,6 +9,8 @@ import { readFile } from 'fs/promises';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
+import GithubSlugger from 'github-slugger';
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_CSS = await readFile(join(__dirname, 'styles/default.css'), 'utf-8');
 const HIGHLIGHT_CSS = await readFile(join(__dirname, 'styles/github.css'), 'utf-8');
@@ -20,9 +22,20 @@ export class Renderer {
       ...options
     };
     this.browser = null;
+    this.slugger = new GithubSlugger();
   }
 
-  createMarkedInstance() {
+  createMarkedInstance(tocHtml = '') {
+    this.slugger = new GithubSlugger();
+    const renderer = {
+      text(token) {
+        if (token.text.toLowerCase() === '[toc]') {
+          return tocHtml;
+        }
+        return token.text;
+      }
+    };
+
     return new Marked()
       .use(markedHighlight({
         langPrefix: 'hljs language-',
@@ -33,6 +46,7 @@ export class Renderer {
       }))
       .use(gfmHeadingId())
       .use(footnote())
+      .use({ renderer })
       .setOptions({
         gfm: true,
         breaks: true,
@@ -70,36 +84,18 @@ export class Renderer {
     }
   }
 
-  slugify(text, seen) {
-    let slug = text
-      .toLowerCase()
-      .trim()
-      .replace(/<[^>]+>/g, '') 
-      .replace(/[^\w\s-]/g, '')
-      .replace(/[\s_-]+/g, '-')
-      .replace(/^-+|-+$/g, '');
-
-    const originalSlug = slug;
-    let count = 1;
-    while (seen.has(slug)) {
-      slug = `${originalSlug}-${count}`;
-      count++;
-    }
-    seen.add(slug);
-    return slug;
-  }
-
   generateToc(marked, tokens) {
     const headings = [];
-    const seen = new Set();
+    const tocSlugger = new GithubSlugger();
     
     const walk = (items) => {
       for (const token of items) {
         if (token.type === 'heading') {
+          const raw = token.text.replace(/<[!\/a-z].*?>/gi, '').trim();
           headings.push({
             level: token.depth,
             text: token.text,
-            id: this.slugify(token.text, seen)
+            id: tocSlugger.slug(raw)
           });
         }
         if (token.tokens) {
@@ -125,23 +121,26 @@ export class Renderer {
 
     content = content.replace(/<!--\s*PAGE_BREAK\s*-->/g, '<div class="page-break"></div>');
 
-    const marked = this.createMarkedInstance();
-    const tokens = marked.lexer(content);
+    // First pass to get tokens for TOC
+    const lexerMarked = new Marked()
+      .use(gfmHeadingId())
+      .use(footnote());
+    const tokens = lexerMarked.lexer(content);
     
+    const hasTocTag = /\[TOC\]/i.test(content);
+    const tocEnabled = options.toc || hasTocTag;
     let tocHtml = '';
-    if (options.toc) {
-      tocHtml = this.generateToc(marked, tokens);
+    if (tocEnabled) {
+      tocHtml = this.generateToc(lexerMarked, tokens);
     }
 
+    // Second pass with TOC replacement in renderer
+    const marked = this.createMarkedInstance(tocHtml);
     let htmlContent = marked.parser(tokens);
     
-    if (htmlContent.includes('[TOC]')) {
-      if (!tocHtml) tocHtml = this.generateToc(marked, tokens);
-      htmlContent = htmlContent.replace('[TOC]', tocHtml);
-      tocHtml = '';
+    if (tocHtml && options.toc && !hasTocTag) {
+      htmlContent = tocHtml + htmlContent;
     }
-
-    if (tocHtml) htmlContent = tocHtml + htmlContent;
 
     let extraCss = '';
     if (options.customCss) {
@@ -156,6 +155,16 @@ export class Renderer {
     const basePath = options.basePath ? `<base href="file://${options.basePath}/">` : '';
     const combinedCss = DEFAULT_CSS + '\n' + HIGHLIGHT_CSS + '\n' + extraCss;
 
+    const hasMath = /\$|\\\(|\\\[/.test(content);
+    const mathJaxScript = hasMath ? `
+  <script>
+    window.MathJax = {
+      tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$'], ['\\[', '\\]']] },
+      svg: { fontCache: 'global' }
+    };
+  </script>
+  <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>` : '';
+
     if (options.template) {
       try {
         const template = await readFile(options.template, 'utf-8');
@@ -163,7 +172,8 @@ export class Renderer {
           .replace('{{title}}', title)
           .replace('{{base}}', basePath)
           .replace('{{css}}', combinedCss)
-          .replace('{{content}}', htmlContent);
+          .replace('{{content}}', htmlContent)
+          .replace('{{mathjax}}', mathJaxScript);
       } catch (e) {
         console.warn(`Failed to load template: ${e.message}. Using default.`);
       }
@@ -175,14 +185,7 @@ export class Renderer {
   <meta charset="UTF-8">
   ${basePath}
   <title>${title}</title>
-  <style>${combinedCss}</style>
-  <script>
-    window.MathJax = {
-      tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$'], ['\\[', '\\]']] },
-      svg: { fontCache: 'global' }
-    };
-  </script>
-  <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+  <style>${combinedCss}</style>${mathJaxScript}
 </head>
 <body class="markdown-body">${htmlContent}</body>
 </html>`;

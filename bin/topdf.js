@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { Command } from 'commander';
-import { readFile, stat } from 'fs/promises';
+import { readFile, stat, mkdir } from 'fs/promises';
 import { resolve, basename, extname, join, dirname } from 'path';
 import chalk from 'chalk';
 import { glob } from 'glob';
@@ -47,11 +47,6 @@ program
       process.exit(1);
     }
 
-    // Reuse a single browser instance if possible, but Marked instance must be fresh
-    // Or we find a way to reset Marked state. 
-    // Given the issues with extensions, creating a fresh Renderer is safest.
-    // However, we want to reuse the Puppeteer browser for performance.
-    
     const sharedRenderer = new Renderer({
         customCss: opts.css ? resolve(opts.css) : null,
         template: opts.template ? resolve(opts.template) : null,
@@ -60,6 +55,9 @@ program
         headerTemplate: opts.header ? await readFile(resolve(opts.header), 'utf-8') : null,
         footerTemplate: opts.footer ? await readFile(resolve(opts.footer), 'utf-8') : null
     });
+
+    let successCount = 0;
+    let failCount = 0;
 
     async function convert(file) {
       try {
@@ -80,27 +78,30 @@ program
               const name = basename(inputPath, extname(inputPath));
               outputPath = join(outputPath, `${name}.pdf`);
             } else if (files.length > 1) {
+              // If multiple files and output is not a directory, 
+              // we treat it as a base path or directory to be created
               const name = basename(inputPath, extname(inputPath));
-              outputPath = join(dirname(outputPath), `${name}.pdf`);
+              outputPath = join(outputPath, `${name}.pdf`);
             }
           } catch (e) {
-            if (files.length > 1 && !extname(outputPath)) {
+            if (files.length > 1 || !outputPath.endsWith('.pdf')) {
               const name = basename(inputPath, extname(inputPath));
               outputPath = join(outputPath, `${name}.pdf`);
             }
           }
         }
 
+        // Ensure output directory exists
+        await mkdir(dirname(outputPath), { recursive: true });
+
         console.log(chalk.blue(`Converting ${chalk.bold(file)} → ${chalk.bold(outputPath)}...`));
-        
-        // CRITICAL: We need a fresh Marked instance but want to keep the browser.
-        // Let's modify Renderer to allow resetting its Marked instance or just use a new one.
-        // For now, let's see if creating a new Renderer per file but sharing the browser works.
         
         await sharedRenderer.generatePdf(markdown, outputPath, { basePath: dirname(inputPath) });
         console.log(chalk.green(`✔ Done: ${basename(outputPath)}`));
+        successCount++;
       } catch (error) {
         console.error(chalk.red('Error:'), error.message);
+        failCount++;
       }
     }
 
@@ -115,7 +116,13 @@ program
         });
     } else {
       await sharedRenderer.close();
-      console.log(chalk.green(`\n✔ Successfully converted ${files.length} file(s).`));
+      if (successCount > 0) {
+        console.log(chalk.green(`\n✔ Successfully converted ${successCount} file(s).`));
+      }
+      if (failCount > 0) {
+        console.log(chalk.red(`\n✖ Failed to convert ${failCount} file(s).`));
+        process.exit(1);
+      }
     }
   });
 
