@@ -119,6 +119,17 @@ export class Renderer {
     const slugger = new GithubSlugger();
     const marked = this.createMarkedInstance(slugger);
     const tokens = marked.lexer(content);
+    
+    // Populate IDs for TOC
+    const walk = (items) => {
+      for (const t of items) {
+        if (t.type === 'heading' && !t.id) {
+          t.id = slugger.slug(t.text.replace(/<.*?>/g, '').replace(/\[([^\]]+)\]\([^\)]+\)/g, '$1'));
+        }
+        if (t.tokens) walk(t.tokens);
+      }
+    };
+    walk(tokens);
 
     // Move footnotes to the end
     const footnoteIndex = tokens.findIndex(t => t.type === 'footnotes');
@@ -164,8 +175,20 @@ export class Renderer {
     const html = await this.renderHtml(md, opts);
     await this.init();
     try {
-      await this.page.setContent(html, { waitUntil: 'networkidle0', timeout: 60000 });
+      await this.page.setContent(html, { waitUntil: 'domcontentloaded', timeout: 60000 });
       await this.page.evaluate(async () => {
+        // Wait for images
+        const images = Array.from(document.querySelectorAll('img'));
+        await Promise.all(images.map(img => {
+          if (img.complete) return Promise.resolve();
+          return new Promise(resolve => {
+            img.addEventListener('load', resolve);
+            img.addEventListener('error', resolve);
+            setTimeout(resolve, 5000); // Max 5s per image
+          });
+        }));
+
+        // Wait for MathJax
         if (!document.getElementById('MathJax-script')) return;
         await new Promise(r => {
           const check = () => { if (window.MathJax?.typesetPromise) r(); else setTimeout(check, 100); };
