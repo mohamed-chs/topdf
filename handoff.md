@@ -26,4 +26,16 @@ The tool is built to be "zero-config" by default while providing deep customizat
 
 **NOTE: THE PROJECT HAS COMPLETED PHASE 4. CORE FUNCTIONALITY IS ROBUST, AND ADVANCED POLISHING FEATURES (HEADERS, IMAGES, CONFIG) ARE IMPLEMENTED.**
 
+## New Tests and Examples (Added 2026-02-11)
+- **Advanced Examples**: Added `examples/comprehensive/` sub-directory with:
+    - `headers-footers.md`: Full demo of native PDF headers/footers.
+    - `advanced-styles.md`: Controlling page breaks and print-specific CSS.
+    - `config-example/`: Demo of `.topdfrc.yaml` usage.
+    - `relative-images.md`: Testing asset resolution.
+    - `math-heavy.md`: Stress test for complex LaTeX formulas.
+- **Enhanced Test Suite**:
+    - `tests/cli_comprehensive.test.js`: Full integration tests for all CLI flags and configuration loading.
+    - `tests/renderer_errors.test.js`: Robustness tests for malformed frontmatter, missing files, and TOC edge cases.
+    - `tests/fidelity.test.js`: Verification of complex Markdown features like nested lists, task lists, and table alignment.
+
 **NOTE: THE `package.json` IS CONFIGURED FOR ESM (`"type": "module"`). ALL NEW FILES MUST FOLLOW ESM CONVENTIONS.**

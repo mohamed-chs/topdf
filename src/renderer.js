@@ -70,7 +70,7 @@ export class Renderer {
   }
 
   parseFrontmatter(markdown) {
-    const match = markdown.match(/^---\s*\n([\s\S]*?)\n---\s*\n/);
+    const match = markdown.match(/^---\s*\r?\n([\s\S]*?)\r?\n---\s*\r?\n/);
     if (!match) return { data: {}, content: markdown };
 
     try {

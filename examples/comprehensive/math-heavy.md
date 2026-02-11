@@ -10,14 +10,10 @@ Maxwell's Equations:
 
 $$
 \begin{aligned}
-
-abla \cdot \mathbf{E} &= \frac{ho}{\varepsilon_0} 
-
-abla \cdot \mathbf{B} &= 0 
-
-abla 	imes \mathbf{E} &= -\frac{\partial \mathbf{B}}{\partial t} 
-
-abla 	imes \mathbf{B} &= \mu_0\left(\mathbf{J} + \varepsilon_0 \frac{\partial \mathbf{E}}{\partial t}ight)
+\nabla \cdot \mathbf{E} &= \frac{\rho}{\varepsilon_0} \\
+\nabla \cdot \mathbf{B} &= 0 \\
+\nabla \times \mathbf{E} &= -\frac{\partial \mathbf{B}}{\partial t} \\
+\nabla \times \mathbf{B} &= \mu_0\left(\mathbf{J} + \varepsilon_0 \frac{\partial \mathbf{E}}{\partial t}\right)
 \end{aligned}
 $$
 
@@ -25,9 +21,9 @@ $$
 
 $$
 A = \begin{pmatrix}
-a_{11} & a_{12} & \cdots & a_{1n} 
-a_{21} & a_{22} & \cdots & a_{2n} 
-\vdots & \vdots & \ddots & \vdots 
+a_{11} & a_{12} & \cdots & a_{1n} \\
+a_{21} & a_{22} & \cdots & a_{2n} \\
+\vdots & \vdots & \ddots & \vdots \\
 a_{m1} & a_{m2} & \cdots & a_{mn}
 \end{pmatrix}
 $$
