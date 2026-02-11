@@ -40,23 +40,41 @@ export class Renderer {
     catch (e) { console.warn('Frontmatter error:', e.message); return { data: {}, content: md }; }
   }
 
-  generateToc(tokens) {
+  generateToc(tokens, depth = 6) {
     const headings = [], slugger = new GithubSlugger(), marked = new Marked();
     const walk = (items) => {
       for (const t of items) {
-        if (t.type === 'heading') headings.push({ level: t.depth, text: marked.parseInline(t.text), id: slugger.slug(t.text.replace(/<.*?>/g, '').trim()) });
+        if (t.type === 'heading' && t.depth <= depth) {
+          const text = t.text.trim();
+          const id = t.id || slugger.slug(text.replace(/<.*?>/g, '').replace(/\[([^\]]+)\]\([^\)]+\)/g, '$1'));
+          headings.push({
+            level: t.depth,
+            text: marked.parseInline(text),
+            id: id
+          });
+        }
         if (t.tokens) walk(t.tokens);
       }
     };
     walk(tokens);
-    return headings.length ? `<div class="toc"><h2>Table of Contents</h2><ul>${headings.map(h => `<li class="toc-level-${h.level}"><a href="#${h.id}">${h.text}</a></li>`).join('\n')}</ul></div>` : '';
+    return headings.length ? `<div class="toc"><h2>Table of Contents</h2><ul>${headings.map(h => {
+      const cleanLinkText = h.text.replace(/<a\s+[^>]*>([\s\S]*?)<\/a>/gi, '$1');
+      return `<li class="toc-level-${h.level}"><a href="#${h.id}">${cleanLinkText}</a></li>`;
+    }).join('\n')}</ul></div>` : '';
   }
 
-  createMarkedInstance(tocHtml = '') {
+  createMarkedInstance() {
     return new Marked()
       .use(markedHighlight({ langPrefix: 'hljs language-', highlight: (c, l) => hljs.highlight(c, { language: hljs.getLanguage(l) ? l : 'plaintext' }).value }))
-      .use(gfmHeadingId()).use(footnote()).use({
-        renderer: { paragraph(t) { return t.text.trim().toLowerCase() === '[toc]' ? tocHtml + '\n' : `<p>${this.parser.parseInline(t.tokens)}</p>\n`; } }
+      .use(footnote()).use({
+        renderer: {
+          heading(token) {
+            const text = this.parser.parseInline(token.tokens);
+            const level = token.depth;
+            const id = token.id;
+            return `<h${level} id="${id}">${text}</h${level}>\n`;
+          }
+        }
       }).setOptions({ gfm: true, breaks: true });
   }
 
@@ -64,14 +82,33 @@ export class Renderer {
     const opts = { ...this.options, ...overrides };
     const { data, content: raw } = this.parseFrontmatter(md);
     const content = raw.replace(/<!--\s*PAGE_BREAK\s*-->/g, '<div class="page-break"></div>');
-    const tokens = new Marked().use(gfmHeadingId()).use(footnote()).lexer(content);
-    const tocHtml = (opts.toc || /\[TOC\]/i.test(content)) ? this.generateToc(tokens) : '';
-    let html = this.createMarkedInstance(tocHtml).parser(tokens);
-    if (tocHtml && opts.toc && !/\[toc\]/i.test(content)) html = tocHtml + html;
+    const slugger = new GithubSlugger();
+    const tokens = new Marked().use(footnote()).lexer(content);
+    const walk = (items) => {
+      for (const t of items) {
+        if (t.type === 'heading') t.id = slugger.slug(t.text.replace(/<.*?>/g, '').replace(/\[([^\]]+)\]\([^\)]+\)/g, '$1').trim());
+        if (t.tokens) walk(t.tokens);
+      }
+    };
+    walk(tokens);
+
+    const tocDepth = data.tocDepth || opts.tocDepth || 6;
+    const tocHtml = (opts.toc || /\[TOC\]/i.test(content)) ? this.generateToc(tokens, tocDepth) : '';
+    let html = this.createMarkedInstance().parser(tokens);
+    
+    if (tocHtml) {
+      if (/\[TOC\]/i.test(html)) {
+        html = html.replace(/\[TOC\]/gi, tocHtml);
+      } else if (opts.toc) {
+        html = tocHtml + html;
+      }
+    }
 
     const css = `${DEFAULT_CSS}\n${HIGHLIGHT_CSS}\n${opts.customCss ? await readFile(opts.customCss, 'utf-8').catch(() => '') : ''}`;
     const base = opts.basePath ? `<base href="${pathToFileURL(resolve(opts.basePath)).href}/">` : '';
-    const math = (opts.math !== false && /(?<!\\)\$[^$\s][^$]*[^$\s]\$|(?<!\\)\$[^$\s]\$|(?<!\\)\$\$[\s\S]+\$\$|\\\(|\\\[/.test(content)) ? `
+    
+    const contentNoCode = content.replace(/```[\s\S]*?```/g, '').replace(/`[^`]*`/g, '');
+    const math = (opts.math !== false && /(?<!\\)\$[^$\s][^$]*[^$\s]\$|(?<!\\)\$[^$\s]\$|(?<!\\)\$\$[\s\S]+\$\$|\\\(|\\\[/.test(contentNoCode)) ? `
   <script>window.MathJax = { tex: { inlineMath: [['$', '$'], ['\\\\(', '\\\\)']], displayMath: [['$$', '$$'], ['\\\\[', '\\\\]']] }, svg: { fontCache: 'global' }, options: { enableErrorOutputs: false } };</script>
   <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>` : '';
 

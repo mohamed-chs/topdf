@@ -11,7 +11,16 @@ import { Renderer } from '../src/renderer.js';
 const program = new Command();
 const loadConfig = async () => {
   for (const p of ['.topdfrc', '.topdfrc.json', '.topdfrc.yaml', '.topdfrc.yml']) {
-    try { return yaml.load(await readFile(resolve(p), 'utf-8')); } catch {}
+    try {
+      const configPath = resolve(p);
+      const config = yaml.load(await readFile(configPath, 'utf-8'));
+      const configDir = dirname(configPath);
+      if (config.css) config.css = resolve(configDir, config.css);
+      if (config.template) config.template = resolve(configDir, config.template);
+      if (config.header) config.header = resolve(configDir, config.header);
+      if (config.footer) config.footer = resolve(configDir, config.footer);
+      return config;
+    } catch {}
   }
   return {};
 };
@@ -30,10 +39,20 @@ program
   .option('--header <path>', 'Custom header template')
   .option('--footer <path>', 'Custom footer template')
   .option('--toc', 'Generate Table of Contents')
+  .option('--toc-depth <depth>', 'Table of Contents depth', (v) => parseInt(v, 10), 6)
   .option('--no-math', 'Disable MathJax')
   .action(async (inputs, options) => {
     const opts = { ...await loadConfig(), ...options };
-    const getFiles = async () => [...new Set((await Promise.all(inputs.map(i => glob(i)))).flat().filter(f => /\.(md|markdown)$/i.test(f)))];
+    const getFiles = async () => {
+      const expanded = await Promise.all(inputs.map(async i => {
+        try {
+          const s = await stat(i);
+          if (s.isDirectory()) return glob(join(i, '**/*.{md,markdown}'));
+        } catch {}
+        return glob(i);
+      }));
+      return [...new Set(expanded.flat().filter(f => /\.(md|markdown)$/i.test(f)))];
+    };
     
     let files = await getFiles();
     if (!files.length) { console.error(chalk.red('Error: No input files found.')); process.exit(1); }
@@ -46,6 +65,7 @@ program
       margin: opts.margin,
       format: opts.format,
       toc: opts.toc,
+      tocDepth: opts.tocDepth,
       math: opts.math,
       headerTemplate: await readTpl(opts.header),
       footerTemplate: await readTpl(opts.footer)
@@ -58,8 +78,20 @@ program
         if ((await stat(input)).isDirectory()) return;
 
         const out = opts.output ? resolve(opts.output) : null;
-        const isDir = out ? (await stat(out).catch(() => null))?.isDirectory() ?? (files.length > 1 || !out.endsWith('.pdf')) : false;
-        const outputPath = isDir ? join(out, `${basename(input, extname(input))}.pdf`) : (out || join(dirname(input), `${basename(input, extname(input))}.pdf`));
+        let outputPath;
+
+        if (out) {
+          const outExists = await stat(out).catch(() => null);
+          const isExplicitDir = outExists?.isDirectory() || (!out.toLowerCase().endsWith('.pdf'));
+          
+          if (files.length > 1 || isExplicitDir) {
+            outputPath = join(out, `${basename(input, extname(input))}.pdf`);
+          } else {
+            outputPath = out;
+          }
+        } else {
+          outputPath = join(dirname(input), `${basename(input, extname(input))}.pdf`);
+        }
 
         await mkdir(dirname(outputPath), { recursive: true });
         console.log(chalk.blue(`Converting ${chalk.bold(file)} → ${chalk.bold(outputPath)}...`));
@@ -70,6 +102,14 @@ program
     };
 
     for (const f of files) await convert(f);
+
+    const cleanup = async () => {
+      console.log(chalk.yellow('\nGracefully shutting down...'));
+      await renderer.close();
+      process.exit(0);
+    };
+    process.on('SIGINT', cleanup);
+    process.on('SIGTERM', cleanup);
 
     if (options.watch) {
       console.log(chalk.yellow('\nWatching for changes... (Press Ctrl+C to stop)'));
