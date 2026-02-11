@@ -31,21 +31,30 @@ program
   .option('-c, --css <path>', 'Custom CSS file path')
   .option('-t, --template <path>', 'Custom HTML template path')
   .option('-m, --margin <margin>', 'Page margin (e.g., 20mm, 1in)', '20mm')
+  .option('-f, --format <format>', 'PDF page format (e.g., A4, Letter)', 'A4')
   .option('--header <path>', 'Custom HTML header template path')
   .option('--footer <path>', 'Custom HTML footer template path')
   .option('--toc', 'Generate a Table of Contents at the start of the document')
+  .option('--no-math', 'Disable MathJax auto-detection and rendering')
   .action(async (inputs, options) => {
     const config = await loadConfig();
     const opts = { ...config, ...options };
     
-    const files = (await Promise.all(inputs.map(i => glob(i))))
-      .flat()
-      .filter(f => /\.(md|markdown)$/i.test(f));
+    async function getFiles() {
+      const found = (await Promise.all(inputs.map(i => glob(i))))
+        .flat()
+        .filter(f => /\.(md|markdown)$/i.test(f));
+      return [...new Set(found)]; // Deduplicate
+    }
+
+    let files = await getFiles();
 
     if (files.length === 0) {
       console.error(chalk.red('Error: No input files found.'));
       process.exit(1);
     }
+
+    const isSingleInputLiteral = inputs.length === 1 && !inputs[0].includes('*');
 
     if (files.length > 1 && opts.output && opts.output.endsWith('.pdf')) {
       console.error(chalk.red('Error: Output path cannot be a .pdf file when converting multiple inputs. Please specify a directory.'));
@@ -56,7 +65,9 @@ program
         customCss: opts.css ? resolve(opts.css) : null,
         template: opts.template ? resolve(opts.template) : null,
         margin: opts.margin,
+        format: opts.format,
         toc: opts.toc,
+        math: opts.math,
         headerTemplate: opts.header ? await readFile(resolve(opts.header), 'utf-8') : null,
         footerTemplate: opts.footer ? await readFile(resolve(opts.footer), 'utf-8') : null
     });
@@ -85,9 +96,14 @@ program
             }
           } catch (e) {
             // If it doesn't exist, we decide if it's a file or dir
-            if (files.length > 1 || !outputPath.endsWith('.pdf')) {
+            // New logic: if it was a single literal input (not a glob) and ends in something that isn't .pdf, 
+            // but the user might have intended it as a filename, we still respect it if it's not multiple files.
+            if (files.length > 1 || (!isSingleInputLiteral && !outputPath.endsWith('.pdf'))) {
               const name = basename(inputPath, extname(inputPath));
               outputPath = join(outputPath, `${name}.pdf`);
+            } else if (!outputPath.endsWith('.pdf')) {
+               // Optional: maybe auto-append .pdf? Sane default: yes.
+               outputPath += '.pdf';
             }
           }
         }
@@ -112,8 +128,18 @@ program
       console.log(chalk.yellow('\nWatching for changes... (Press Ctrl+C to stop)'));
       chokidar.watch(inputs, { ignored: /(^|[\/\\])\../, persistent: true })
         .on('change', async path => {
-          console.log(chalk.cyan(`\nChange detected in ${path}`));
-          await convert(path);
+          if (/\.(md|markdown)$/i.test(path)) {
+            console.log(chalk.cyan(`\nChange detected in ${path}`));
+            await convert(path);
+          }
+        })
+        .on('add', async path => {
+          if (/\.(md|markdown)$/i.test(path)) {
+            // Check if we already have it to avoid double-triggering on startup if chokidar is fast
+            // but usually 'add' is for new files during watch
+            console.log(chalk.cyan(`\nNew file detected: ${path}`));
+            await convert(path);
+          }
         });
     } else {
       await sharedRenderer.close();

@@ -6,7 +6,7 @@ import hljs from 'highlight.js';
 import puppeteer from 'puppeteer';
 import yaml from 'js-yaml';
 import { readFile } from 'fs/promises';
-import { join, dirname } from 'path';
+import { join, dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 
 import GithubSlugger from 'github-slugger';
@@ -19,11 +19,11 @@ export class Renderer {
   constructor(options = {}) {
     this.options = {
       margin: '20mm',
+      format: 'A4',
       ...options
     };
     this.browser = null;
     this.page = null;
-    this.slugger = new GithubSlugger();
   }
 
   createMarkedInstance(tocHtml = '') {
@@ -146,7 +146,12 @@ export class Renderer {
     const marked = this.createMarkedInstance(tocHtml);
     let htmlContent = marked.parser(tokens);
     
-    if (tocHtml && options.toc && !hasTocTag) {
+    // If [TOC] wasn't in a paragraph, it might still be in the text as a literal
+    if (tocHtml && htmlContent.toLowerCase().includes('[toc]')) {
+      htmlContent = htmlContent.replace(/\[toc\]/gi, tocHtml);
+    }
+
+    if (tocHtml && options.toc && !htmlContent.includes(tocHtml)) {
       htmlContent = tocHtml + htmlContent;
     }
 
@@ -159,13 +164,23 @@ export class Renderer {
       }
     }
 
-    const title = data.title || 'Markdown Document';
+    const title = overrides.title || data.title || 'Markdown Document';
     // Sanitize basePath for use in attribute
     const sanitizedBasePath = options.basePath ? options.basePath.replace(/"/g, '&quot;') : '';
-    const basePathTag = sanitizedBasePath ? `<base href="file://${sanitizedBasePath}/">` : '';
+    // Ensure file:// URLs are correctly formatted (especially for Windows)
+    let baseHref = '';
+    if (sanitizedBasePath) {
+      const normalizedPath = sanitizedBasePath.replace(/\\/g, '/');
+      baseHref = `file://${normalizedPath.startsWith('/') ? '' : '/'}${normalizedPath}/`;
+    }
+    const basePathTag = baseHref ? `<base href="${baseHref}">` : '';
     const combinedCss = DEFAULT_CSS + '\n' + HIGHLIGHT_CSS + '\n' + extraCss;
 
-    const hasMath = /\$|\\\(|\\\[/.test(content);
+    // More robust MathJax detection: look for pairs of $ (not preceded by backslash)
+    // with no space immediately after the opening $ and no space immediately before the closing $
+    // or block math $$, or LaTeX delimiters \( \) \[ \]
+    const mathEnabled = options.math !== false;
+    const hasMath = mathEnabled && /(?<!\\)\$[^$\s][^$]*[^$\s]\$|(?<!\\)\$[^$\s]\$|(?<!\\)\$\$[\s\S]+\$\$|\\\(|\\\[/.test(content);
     const mathJaxScript = hasMath ? `
   <script>
     window.MathJax = {
@@ -179,12 +194,13 @@ export class Renderer {
     if (options.template) {
       try {
         const template = await readFile(options.template, 'utf-8');
+        // Use global regex to replace all occurrences and handle potential $ in content safely
         return template
-          .replace('{{title}}', title)
-          .replace('{{base}}', basePathTag)
-          .replace('{{css}}', combinedCss)
-          .replace('{{content}}', htmlContent)
-          .replace('{{mathjax}}', mathJaxScript);
+          .replace(/{{title}}/g, () => title)
+          .replace(/{{base}}/g, () => basePathTag)
+          .replace(/{{css}}/g, () => combinedCss)
+          .replace(/{{content}}/g, () => htmlContent)
+          .replace(/{{mathjax}}/g, () => mathJaxScript);
       } catch (e) {
         console.warn(`Failed to load template: ${e.message}. Using default.`);
       }
@@ -204,6 +220,13 @@ export class Renderer {
 
   async generatePdf(markdown, outputPath, overrides = {}) {
     const options = { ...this.options, ...overrides };
+    
+    // Ensure basePath is absolute for puppeteer if it's not already
+    if (options.basePath) {
+        const absolutePath = resolve(options.basePath).replace(/\\/g, '/');
+        options.basePath = absolutePath.startsWith('/') ? absolutePath : `/${absolutePath}`;
+    }
+
     const html = await this.renderHtml(markdown, options);
 
     await this.init();
@@ -227,7 +250,7 @@ export class Renderer {
 
       await this.page.pdf({
         path: outputPath,
-        format: 'A4',
+        format: options.format,
         margin: {
           top: options.margin,
           right: options.margin,
