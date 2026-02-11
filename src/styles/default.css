@@ -81,7 +81,9 @@ pre code {
 }
 
 .footnotes-title {
-  display: none;
+  font-size: 1.2rem;
+  margin-bottom: 0.5rem;
+  font-weight: bold;
 }
 
 /* TOC */
@@ -91,6 +93,7 @@ pre code {
   border-radius: 6px;
   margin-bottom: 2rem;
   border: 1px solid var(--border-color);
+  page-break-inside: avoid;
 }
 
 .toc h2 {
@@ -114,4 +117,6 @@ pre code {
 @media print {
   body { padding: 0; max-width: none; }
   .page-break { page-break-before: always; }
+  h1, h2, h3, h4, h5, h6 { page-break-after: avoid; }
+  table, pre, blockquote, .toc { page-break-inside: avoid; }
 }

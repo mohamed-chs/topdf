@@ -54,9 +54,9 @@ program
       process.exit(1);
     }
 
-    const isSingleInputLiteral = inputs.length === 1 && !inputs[0].includes('*');
+    const isMultipleFiles = files.length > 1;
 
-    if (files.length > 1 && opts.output && opts.output.endsWith('.pdf')) {
+    if (isMultipleFiles && opts.output && opts.output.endsWith('.pdf')) {
       console.error(chalk.red('Error: Output path cannot be a .pdf file when converting multiple inputs. Please specify a directory.'));
       process.exit(1);
     }
@@ -88,23 +88,23 @@ program
           outputPath = join(dirname(inputPath), `${name}.pdf`);
         } else {
           outputPath = resolve(outputPath);
+          let isDirectory = false;
           try {
             const s = await stat(outputPath);
-            if (s.isDirectory()) {
-              const name = basename(inputPath, extname(inputPath));
-              outputPath = join(outputPath, `${name}.pdf`);
-            }
+            isDirectory = s.isDirectory();
           } catch (e) {
-            // If it doesn't exist, we decide if it's a file or dir
-            // New logic: if it was a single literal input (not a glob) and ends in something that isn't .pdf, 
-            // but the user might have intended it as a filename, we still respect it if it's not multiple files.
-            if (files.length > 1 || (!isSingleInputLiteral && !outputPath.endsWith('.pdf'))) {
-              const name = basename(inputPath, extname(inputPath));
-              outputPath = join(outputPath, `${name}.pdf`);
-            } else if (!outputPath.endsWith('.pdf')) {
-               // Optional: maybe auto-append .pdf? Sane default: yes.
-               outputPath += '.pdf';
+            // If it doesn't exist, decide based on context
+            // If we have multiple files, it MUST be a directory
+            // If we have one file but it's from a glob, we still prefer directory for consistency
+            // If it doesn't end in .pdf, we assume it's a directory
+            if (isMultipleFiles || !outputPath.endsWith('.pdf')) {
+              isDirectory = true;
             }
+          }
+
+          if (isDirectory) {
+            const name = basename(inputPath, extname(inputPath));
+            outputPath = join(outputPath, `${name}.pdf`);
           }
         }
 

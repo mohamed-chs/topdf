@@ -28,13 +28,13 @@ export class Renderer {
 
   createMarkedInstance(tocHtml = '') {
     const renderer = {
-      // Specialized replacement for [TOC] that only works in paragraphs
-      // and not inside headings or other structures.
-      paragraph: (token) => {
-        if (token.text.trim().toLowerCase() === '[toc]') {
-          return tocHtml;
+      paragraph(token) {
+        const text = token.text.trim();
+        if (text.toLowerCase() === '[toc]') {
+          return tocHtml + '\n';
         }
-        return false; // fall back to default
+        // Fallback to default paragraph rendering
+        return `<p>${this.parser.parseInline(token.tokens)}</p>\n`;
       }
     };
 
@@ -99,6 +99,9 @@ export class Renderer {
     const walk = (items) => {
       for (const token of items) {
         if (token.type === 'heading') {
+          // Skip H1 if it's likely the title (level 1)
+          // Actually, let's keep all but maybe provide an option later.
+          // For now, let's just avoid double titles if possible.
           const raw = token.text.replace(/<[!\/a-z].*?>/gi, '').trim();
           headings.push({
             level: token.depth,
@@ -145,16 +148,12 @@ export class Renderer {
     // Use tokens for the second pass too
     const marked = this.createMarkedInstance(tocHtml);
     let htmlContent = marked.parser(tokens);
-    
-    // If [TOC] wasn't in a paragraph, it might still be in the text as a literal
-    if (tocHtml && htmlContent.toLowerCase().includes('[toc]')) {
-      htmlContent = htmlContent.replace(/\[toc\]/gi, tocHtml);
-    }
 
-    if (tocHtml && options.toc && !htmlContent.includes(tocHtml)) {
+    // If TOC is explicitly enabled but no [TOC] tag was found in the content, prepend it.
+    if (tocHtml && options.toc && !/\[toc\]/i.test(content)) {
       htmlContent = tocHtml + htmlContent;
     }
-
+    
     let extraCss = '';
     if (options.customCss) {
       try {
@@ -239,7 +238,28 @@ export class Renderer {
       });
 
       await this.page.evaluate(async () => {
-        if (window.MathJax?.typesetPromise) {
+        // Wait for MathJax to be available and ready
+        const waitForMathJax = () => {
+          return new Promise((resolve) => {
+            if (window.MathJax && window.MathJax.typesetPromise) {
+              return resolve();
+            }
+            const interval = setInterval(() => {
+              if (window.MathJax && window.MathJax.typesetPromise) {
+                clearInterval(interval);
+                resolve();
+              }
+            }, 100);
+            // Timeout after 10s to avoid hanging forever
+            setTimeout(() => {
+              clearInterval(interval);
+              resolve();
+            }, 10000);
+          });
+        };
+
+        if (document.getElementById('MathJax-script')) {
+          await waitForMathJax();
           try {
             await window.MathJax.typesetPromise();
           } catch (e) {
