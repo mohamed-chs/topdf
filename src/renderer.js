@@ -41,16 +41,14 @@ export class Renderer {
   }
 
   generateToc(tokens, depth = 6) {
-    const headings = [], slugger = new GithubSlugger(), marked = new Marked();
+    const headings = [], marked = new Marked();
     const walk = (items) => {
       for (const t of items) {
         if (t.type === 'heading' && t.depth <= depth) {
-          const text = t.text.trim();
-          const id = t.id || slugger.slug(text.replace(/<.*?>/g, '').replace(/\[([^\]]+)\]\([^\)]+\)/g, '$1'));
           headings.push({
             level: t.depth,
-            text: marked.parseInline(text),
-            id: id
+            text: marked.parseInline(t.text.trim()),
+            id: t.id
           });
         }
         if (t.tokens) walk(t.tokens);
@@ -63,28 +61,64 @@ export class Renderer {
     }).join('\n')}</ul></div>` : '';
   }
 
-  createMarkedInstance() {
-    return new Marked()
-      .use(markedHighlight({ langPrefix: 'hljs language-', highlight: (c, l) => hljs.highlight(c, { language: hljs.getLanguage(l) ? l : 'plaintext' }).value }))
+  createMarkedInstance(slugger) {
+    const instance = new Marked()
+      .use(markedHighlight({ 
+        langPrefix: 'hljs language-', 
+        highlight: (c, l) => hljs.highlight(c, { language: hljs.getLanguage(l) ? l : 'plaintext' }).value 
+      }))
       .use(footnote())
       .use(gfmHeadingId())
       .use({
+        walkTokens(token) {
+          if (token.type === 'heading' && !token.id && slugger) {
+            token.id = slugger.slug(token.text.replace(/<.*?>/g, '').replace(/\[([^\]]+)\]\([^\)]+\)/g, '$1'));
+          }
+        },
+        extensions: [
+          {
+            name: 'pageBreak',
+            level: 'block',
+            start(src) { return src.match(/<!--\s*PAGE_BREAK\s*-->/)?.index; },
+            tokenizer(src) {
+              const cap = /^<!--\s*PAGE_BREAK\s*-->/.exec(src);
+              if (cap) return { type: 'pageBreak', raw: cap[0] };
+            },
+            renderer() { return '<div class="page-break"></div>'; }
+          },
+          {
+            name: 'tocPlaceholder',
+            level: 'block',
+            start(src) { return src.match(/\[TOC\]/i)?.index; },
+            tokenizer(src) {
+              const cap = /^\[TOC\]/i.exec(src);
+              if (cap) return { type: 'tocPlaceholder', raw: cap[0] };
+            },
+            renderer() { return '[[TOC_PLACEHOLDER]]'; }
+          }
+        ],
         renderer: {
           link({ href, title, text }) {
-            let out = `<a href="${href.replace(/\.md(#|$)/i, '.pdf$1')}"`;
+            const isExternal = /^(?:[a-z+]+:)?\/\//i.test(href);
+            const newHref = (!isExternal && href.toLocaleLowerCase().endsWith('.md')) 
+              ? href.replace(/\.md$/i, '.pdf') 
+              : href;
+            let out = `<a href="${newHref}"`;
             if (title) out += ` title="${title}"`;
             out += `>${text}</a>`;
             return out;
           }
         }
       }).setOptions({ gfm: true, breaks: true });
+    return instance;
   }
 
   async renderHtml(md, overrides = {}) {
     const opts = { ...this.options, ...overrides };
-    const { data, content: raw } = this.parseFrontmatter(md);
-    const content = raw.replace(/<!--\s*PAGE_BREAK\s*-->/g, '<div class="page-break"></div>');
-    const tokens = new Marked().use(footnote()).use(gfmHeadingId()).lexer(content);
+    const { data, content } = this.parseFrontmatter(md);
+    const slugger = new GithubSlugger();
+    const marked = this.createMarkedInstance(slugger);
+    const tokens = marked.lexer(content);
 
     // Move footnotes to the end
     const footnoteIndex = tokens.findIndex(t => t.type === 'footnotes');
@@ -94,15 +128,14 @@ export class Renderer {
     }
 
     const tocDepth = data.tocDepth || opts.tocDepth || 6;
-    const tocHtml = (opts.toc || /\[TOC\]/i.test(content)) ? this.generateToc(tokens, tocDepth) : '';
-    let html = this.createMarkedInstance().parser(tokens);
+    const hasTocPlaceholder = tokens.some(t => t.type === 'tocPlaceholder');
+    const tocHtml = (opts.toc || hasTocPlaceholder) ? this.generateToc(tokens, tocDepth) : '';
+    let html = marked.parser(tokens);
     
     if (tocHtml) {
-      if (html.includes('<p>[TOC]</p>')) {
-        html = html.replace('<p>[TOC]</p>', tocHtml);
-      } else if (/\[TOC\]/i.test(html)) {
-        html = html.replace(/\[TOC\]/gi, tocHtml);
-      } else if (opts.toc) {
+      if (html.includes('[[TOC_PLACEHOLDER]]')) {
+        html = html.replace('[[TOC_PLACEHOLDER]]', tocHtml);
+      } else if (opts.toc && !hasTocPlaceholder) {
         html = tocHtml + html;
       }
     }
@@ -110,8 +143,13 @@ export class Renderer {
     const css = `${DEFAULT_CSS}\n${HIGHLIGHT_CSS}\n${opts.customCss ? await readFile(opts.customCss, 'utf-8').catch(() => '') : ''}`;
     const base = opts.basePath ? `<base href="${pathToFileURL(resolve(opts.basePath)).href}/">` : '';
     
-    const contentNoCode = content.replace(/```[\s\S]*?```/g, '').replace(/`[^`]*`/g, '');
-    const math = (opts.math !== false && /(?<!\\)\$[^$\s][^$]*[^$\s]\$|(?<!\\)\$[^$\s]\$|(?<!\\)\$\$[\s\S]+\$\$|\\\(|\\\[/.test(contentNoCode)) ? `
+    // Improved MathJax detection: ignore matches inside links or escaped dollars
+    const contentNoCodeOrLinks = content
+      .replace(/```[\s\S]*?```/g, '')
+      .replace(/`[^`]*`/g, '')
+      .replace(/\[([^\]]*)\]\([^\)]+\)/g, '$1'); // Strip link URLs, keep text
+    const mathRegex = /(?<!\\)\$[^$\s][^$]*[^$\s]\$|(?<!\\)\$[^$\s]\$|(?<!\\)\$\$[\s\S]+\$\$|\\\(|\\\[/;
+    const math = (opts.math !== false && mathRegex.test(contentNoCodeOrLinks)) ? `
   <script>window.MathJax = { tex: { inlineMath: [['$', '$'], ['\\\\(', '\\\\)']], displayMath: [['$$', '$$'], ['\\\\[', '\\\\]']] }, svg: { fontCache: 'global' }, options: { enableErrorOutputs: false } };</script>
   <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>` : '';
 
@@ -126,7 +164,7 @@ export class Renderer {
     const html = await this.renderHtml(md, opts);
     await this.init();
     try {
-      await this.page.setContent(html, { waitUntil: 'domcontentloaded', timeout: 60000 });
+      await this.page.setContent(html, { waitUntil: 'networkidle0', timeout: 60000 });
       await this.page.evaluate(async () => {
         if (!document.getElementById('MathJax-script')) return;
         await new Promise(r => {
@@ -136,11 +174,31 @@ export class Renderer {
         });
         await window.MathJax.typesetPromise().catch(() => {});
       });
+
+      const marginParts = String(opts.margin).split(/\s+/).filter(Boolean);
+      const m = { top: '20mm', right: '20mm', bottom: '20mm', left: '20mm' };
+      if (marginParts.length === 1) {
+        m.top = m.right = m.bottom = m.left = marginParts[0];
+      } else if (marginParts.length === 2) {
+        m.top = m.bottom = marginParts[0];
+        m.right = m.left = marginParts[1];
+      } else if (marginParts.length === 3) {
+        m.top = marginParts[0];
+        m.right = m.left = marginParts[1];
+        m.bottom = marginParts[2];
+      } else if (marginParts.length >= 4) {
+        m.top = marginParts[0];
+        m.right = marginParts[1];
+        m.bottom = marginParts[2];
+        m.left = marginParts[3];
+      }
+
       await this.page.pdf({
         path: outputPath, format: opts.format, printBackground: true,
-        margin: { top: opts.margin, right: opts.margin, bottom: opts.margin, left: opts.margin },
+        margin: m,
         displayHeaderFooter: !!(opts.headerTemplate || opts.footerTemplate),
-        headerTemplate: opts.headerTemplate || '<span></span>', footerTemplate: opts.footerTemplate || '<span></span>'
+        headerTemplate: opts.headerTemplate || '<span></span>', 
+        footerTemplate: opts.footerTemplate || '<div style="font-size: 10px; width: 100%; text-align: center; color: #666;"><span class="pageNumber"></span> / <span class="totalPages"></span></div>'
       });
     } catch (e) { if (e.message.includes('Session closed')) this.page = null; throw e; }
   }
