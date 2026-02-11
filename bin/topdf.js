@@ -23,17 +23,17 @@ async function loadConfig() {
 
 program
   .name('topdf')
-  .description('Convert Markdown to high-quality PDF')
+  .description('Convert Markdown to high-quality PDF. Supports [TOC], footnotes, and <!-- PAGE_BREAK -->.')
   .version('1.0.0')
   .argument('<inputs...>', 'Input markdown files or glob patterns')
-  .option('-o, --output <path>', 'Output directory or file path')
+  .option('-o, --output <path>', 'Output directory (or file path if single input)')
   .option('-w, --watch', 'Watch for changes and reconvert')
   .option('-c, --css <path>', 'Custom CSS file path')
   .option('-t, --template <path>', 'Custom HTML template path')
-  .option('-m, --margin <margin>', 'Page margin', '20mm')
+  .option('-m, --margin <margin>', 'Page margin (e.g., 20mm, 1in)', '20mm')
   .option('--header <path>', 'Custom HTML header template path')
   .option('--footer <path>', 'Custom HTML footer template path')
-  .option('--toc', 'Generate a Table of Contents')
+  .option('--toc', 'Generate a Table of Contents at the start of the document')
   .action(async (inputs, options) => {
     const config = await loadConfig();
     const opts = { ...config, ...options };
@@ -44,6 +44,11 @@ program
 
     if (files.length === 0) {
       console.error(chalk.red('Error: No input files found.'));
+      process.exit(1);
+    }
+
+    if (files.length > 1 && opts.output && opts.output.endsWith('.pdf')) {
+      console.error(chalk.red('Error: Output path cannot be a .pdf file when converting multiple inputs. Please specify a directory.'));
       process.exit(1);
     }
 
@@ -77,13 +82,9 @@ program
             if (s.isDirectory()) {
               const name = basename(inputPath, extname(inputPath));
               outputPath = join(outputPath, `${name}.pdf`);
-            } else if (files.length > 1) {
-              // If multiple files and output is not a directory, 
-              // we treat it as a base path or directory to be created
-              const name = basename(inputPath, extname(inputPath));
-              outputPath = join(outputPath, `${name}.pdf`);
             }
           } catch (e) {
+            // If it doesn't exist, we decide if it's a file or dir
             if (files.length > 1 || !outputPath.endsWith('.pdf')) {
               const name = basename(inputPath, extname(inputPath));
               outputPath = join(outputPath, `${name}.pdf`);

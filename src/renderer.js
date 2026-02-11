@@ -22,17 +22,19 @@ export class Renderer {
       ...options
     };
     this.browser = null;
+    this.page = null;
     this.slugger = new GithubSlugger();
   }
 
   createMarkedInstance(tocHtml = '') {
-    this.slugger = new GithubSlugger();
     const renderer = {
-      text(token) {
-        if (token.text.toLowerCase() === '[toc]') {
+      // Specialized replacement for [TOC] that only works in paragraphs
+      // and not inside headings or other structures.
+      paragraph: (token) => {
+        if (token.text.trim().toLowerCase() === '[toc]') {
           return tocHtml;
         }
-        return token.text;
+        return false; // fall back to default
       }
     };
 
@@ -59,10 +61,15 @@ export class Renderer {
         headless: true,
         args: ['--no-sandbox', '--disable-setuid-sandbox']
       });
+      this.page = await this.browser.newPage();
     }
   }
 
   async close() {
+    if (this.page) {
+      await this.page.close();
+      this.page = null;
+    }
     if (this.browser) {
       await this.browser.close();
       this.browser = null;
@@ -84,9 +91,10 @@ export class Renderer {
     }
   }
 
-  generateToc(marked, tokens) {
+  generateToc(tokens) {
     const headings = [];
     const tocSlugger = new GithubSlugger();
+    const marked = new Marked(); // For inline parsing
     
     const walk = (items) => {
       for (const token of items) {
@@ -94,7 +102,7 @@ export class Renderer {
           const raw = token.text.replace(/<[!\/a-z].*?>/gi, '').trim();
           headings.push({
             level: token.depth,
-            text: token.text,
+            text: marked.parseInline(token.text),
             id: tocSlugger.slug(raw)
           });
         }
@@ -121,7 +129,7 @@ export class Renderer {
 
     content = content.replace(/<!--\s*PAGE_BREAK\s*-->/g, '<div class="page-break"></div>');
 
-    // First pass to get tokens for TOC
+    // Single pass for lexing
     const lexerMarked = new Marked()
       .use(gfmHeadingId())
       .use(footnote());
@@ -131,10 +139,10 @@ export class Renderer {
     const tocEnabled = options.toc || hasTocTag;
     let tocHtml = '';
     if (tocEnabled) {
-      tocHtml = this.generateToc(lexerMarked, tokens);
+      tocHtml = this.generateToc(tokens);
     }
 
-    // Second pass with TOC replacement in renderer
+    // Use tokens for the second pass too
     const marked = this.createMarkedInstance(tocHtml);
     let htmlContent = marked.parser(tokens);
     
@@ -152,7 +160,9 @@ export class Renderer {
     }
 
     const title = data.title || 'Markdown Document';
-    const basePath = options.basePath ? `<base href="file://${options.basePath}/">` : '';
+    // Sanitize basePath for use in attribute
+    const sanitizedBasePath = options.basePath ? options.basePath.replace(/"/g, '&quot;') : '';
+    const basePathTag = sanitizedBasePath ? `<base href="file://${sanitizedBasePath}/">` : '';
     const combinedCss = DEFAULT_CSS + '\n' + HIGHLIGHT_CSS + '\n' + extraCss;
 
     const hasMath = /\$|\\\(|\\\[/.test(content);
@@ -160,7 +170,8 @@ export class Renderer {
   <script>
     window.MathJax = {
       tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$'], ['\\[', '\\]']] },
-      svg: { fontCache: 'global' }
+      svg: { fontCache: 'global' },
+      options: { enableErrorOutputs: false }
     };
   </script>
   <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>` : '';
@@ -170,7 +181,7 @@ export class Renderer {
         const template = await readFile(options.template, 'utf-8');
         return template
           .replace('{{title}}', title)
-          .replace('{{base}}', basePath)
+          .replace('{{base}}', basePathTag)
           .replace('{{css}}', combinedCss)
           .replace('{{content}}', htmlContent)
           .replace('{{mathjax}}', mathJaxScript);
@@ -183,7 +194,7 @@ export class Renderer {
 <html>
 <head>
   <meta charset="UTF-8">
-  ${basePath}
+  ${basePathTag}
   <title>${title}</title>
   <style>${combinedCss}</style>${mathJaxScript}
 </head>
@@ -197,17 +208,24 @@ export class Renderer {
 
     await this.init();
 
-    const page = await this.browser.newPage();
     try {
-      await page.setContent(html, { waitUntil: 'networkidle0' });
+      // Use the reused page
+      await this.page.setContent(html, { 
+        waitUntil: 'domcontentloaded',
+        timeout: 60000 
+      });
 
-      await page.evaluate(async () => {
+      await this.page.evaluate(async () => {
         if (window.MathJax?.typesetPromise) {
-          await window.MathJax.typesetPromise();
+          try {
+            await window.MathJax.typesetPromise();
+          } catch (e) {
+            console.warn('MathJax typeset failed:', e);
+          }
         }
       });
 
-      await page.pdf({
+      await this.page.pdf({
         path: outputPath,
         format: 'A4',
         margin: {
@@ -221,8 +239,14 @@ export class Renderer {
         headerTemplate: options.headerTemplate || '<span></span>',
         footerTemplate: options.footerTemplate || '<span></span>'
       });
-    } finally {
-      await page.close();
+    } catch (error) {
+       // If page crashed or something, we might want to recreate it for next call
+       if (error.message.includes('Session closed')) {
+         this.page = null;
+         await this.init();
+       }
+       throw error;
     }
   }
 }
+
