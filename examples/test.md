@@ -77,3 +77,7 @@ Here is a simple footnote[^1].
 1. First
 2. Second
 3. Third
+
+## Navigation
+
+[Go to second document](second.md)

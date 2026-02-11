@@ -1,7 +1,2 @@
 # Second Document
-
-This is another document for batch testing.
-
-- A
-- B
-- C
+[Back to first](test.md)

@@ -66,13 +66,15 @@ export class Renderer {
   createMarkedInstance() {
     return new Marked()
       .use(markedHighlight({ langPrefix: 'hljs language-', highlight: (c, l) => hljs.highlight(c, { language: hljs.getLanguage(l) ? l : 'plaintext' }).value }))
-      .use(footnote()).use({
+      .use(footnote())
+      .use(gfmHeadingId())
+      .use({
         renderer: {
-          heading(token) {
-            const text = this.parser.parseInline(token.tokens);
-            const level = token.depth;
-            const id = token.id;
-            return `<h${level} id="${id}">${text}</h${level}>\n`;
+          link({ href, title, text }) {
+            let out = `<a href="${href.replace(/\.md(#|$)/i, '.pdf$1')}"`;
+            if (title) out += ` title="${title}"`;
+            out += `>${text}</a>`;
+            return out;
           }
         }
       }).setOptions({ gfm: true, breaks: true });
@@ -82,22 +84,23 @@ export class Renderer {
     const opts = { ...this.options, ...overrides };
     const { data, content: raw } = this.parseFrontmatter(md);
     const content = raw.replace(/<!--\s*PAGE_BREAK\s*-->/g, '<div class="page-break"></div>');
-    const slugger = new GithubSlugger();
-    const tokens = new Marked().use(footnote()).lexer(content);
-    const walk = (items) => {
-      for (const t of items) {
-        if (t.type === 'heading') t.id = slugger.slug(t.text.replace(/<.*?>/g, '').replace(/\[([^\]]+)\]\([^\)]+\)/g, '$1').trim());
-        if (t.tokens) walk(t.tokens);
-      }
-    };
-    walk(tokens);
+    const tokens = new Marked().use(footnote()).use(gfmHeadingId()).lexer(content);
+
+    // Move footnotes to the end
+    const footnoteIndex = tokens.findIndex(t => t.type === 'footnotes');
+    if (footnoteIndex !== -1) {
+      const [footnoteToken] = tokens.splice(footnoteIndex, 1);
+      tokens.push(footnoteToken);
+    }
 
     const tocDepth = data.tocDepth || opts.tocDepth || 6;
     const tocHtml = (opts.toc || /\[TOC\]/i.test(content)) ? this.generateToc(tokens, tocDepth) : '';
     let html = this.createMarkedInstance().parser(tokens);
     
     if (tocHtml) {
-      if (/\[TOC\]/i.test(html)) {
+      if (html.includes('<p>[TOC]</p>')) {
+        html = html.replace('<p>[TOC]</p>', tocHtml);
+      } else if (/\[TOC\]/i.test(html)) {
         html = html.replace(/\[TOC\]/gi, tocHtml);
       } else if (opts.toc) {
         html = tocHtml + html;
