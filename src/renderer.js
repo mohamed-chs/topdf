@@ -7,289 +7,101 @@ import puppeteer from 'puppeteer';
 import yaml from 'js-yaml';
 import { readFile } from 'fs/promises';
 import { join, dirname, resolve } from 'path';
-import { fileURLToPath } from 'url';
-
+import { fileURLToPath, pathToFileURL } from 'url';
 import GithubSlugger from 'github-slugger';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const DEFAULT_CSS = await readFile(join(__dirname, 'styles/default.css'), 'utf-8');
-const HIGHLIGHT_CSS = await readFile(join(__dirname, 'styles/github.css'), 'utf-8');
+const read = (p) => readFile(join(__dirname, p), 'utf-8');
+const [DEFAULT_CSS, HIGHLIGHT_CSS] = await Promise.all([read('styles/default.css'), read('styles/github.css')]);
 
 export class Renderer {
   constructor(options = {}) {
-    this.options = {
-      margin: '20mm',
-      format: 'A4',
-      ...options
-    };
-    this.browser = null;
-    this.page = null;
-  }
-
-  createMarkedInstance(tocHtml = '') {
-    const renderer = {
-      paragraph(token) {
-        const text = token.text.trim();
-        if (text.toLowerCase() === '[toc]') {
-          return tocHtml + '\n';
-        }
-        // Fallback to default paragraph rendering
-        return `<p>${this.parser.parseInline(token.tokens)}</p>\n`;
-      }
-    };
-
-    return new Marked()
-      .use(markedHighlight({
-        langPrefix: 'hljs language-',
-        highlight(code, lang) {
-          const language = hljs.getLanguage(lang) ? lang : 'plaintext';
-          return hljs.highlight(code, { language }).value;
-        }
-      }))
-      .use(gfmHeadingId())
-      .use(footnote())
-      .use({ renderer })
-      .setOptions({
-        gfm: true,
-        breaks: true,
-      });
+    this.options = { margin: '20mm', format: 'A4', ...options };
+    this.browser = this.page = null;
   }
 
   async init() {
     if (!this.browser) {
-      this.browser = await puppeteer.launch({
-        headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox']
-      });
+      this.browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] });
       this.page = await this.browser.newPage();
     }
   }
 
   async close() {
-    if (this.page) {
-      await this.page.close();
-      this.page = null;
-    }
-    if (this.browser) {
-      await this.browser.close();
-      this.browser = null;
-    }
+    if (this.page) await this.page.close();
+    if (this.browser) await this.browser.close();
+    this.page = this.browser = null;
   }
 
-  parseFrontmatter(markdown) {
-    const match = markdown.match(/^---\s*\r?\n([\s\S]*?)\r?\n---\s*\r?\n/);
-    if (!match) return { data: {}, content: markdown };
-
-    try {
-      return {
-        data: yaml.load(match[1]) || {},
-        content: markdown.replace(match[0], '')
-      };
-    } catch (e) {
-      console.warn('Failed to parse frontmatter:', e.message);
-      return { data: {}, content: markdown };
-    }
+  parseFrontmatter(md) {
+    const m = md.match(/^---\s*\r?\n([\s\S]*?)\r?\n---\s*\r?\n/);
+    if (!m) return { data: {}, content: md };
+    try { return { data: yaml.load(m[1]) || {}, content: md.replace(m[0], '') }; }
+    catch (e) { console.warn('Frontmatter error:', e.message); return { data: {}, content: md }; }
   }
 
   generateToc(tokens) {
-    const headings = [];
-    const tocSlugger = new GithubSlugger();
-    const marked = new Marked(); // For inline parsing
-    
+    const headings = [], slugger = new GithubSlugger(), marked = new Marked();
     const walk = (items) => {
-      for (const token of items) {
-        if (token.type === 'heading') {
-          // Skip H1 if it's likely the title (level 1)
-          // Actually, let's keep all but maybe provide an option later.
-          // For now, let's just avoid double titles if possible.
-          const raw = token.text.replace(/<[!\/a-z].*?>/gi, '').trim();
-          headings.push({
-            level: token.depth,
-            text: marked.parseInline(token.text),
-            id: tocSlugger.slug(raw)
-          });
-        }
-        if (token.tokens) {
-          walk(token.tokens);
-        }
+      for (const t of items) {
+        if (t.type === 'heading') headings.push({ level: t.depth, text: marked.parseInline(t.text), id: slugger.slug(t.text.replace(/<.*?>/g, '').trim()) });
+        if (t.tokens) walk(t.tokens);
       }
     };
-
     walk(tokens);
-
-    if (headings.length === 0) return '';
-
-    const listItems = headings
-      .map(h => `<li class="toc-level-${h.level}"><a href="#${h.id}">${h.text}</a></li>`)
-      .join('\n');
-
-    return `<div class="toc"><h2>Table of Contents</h2><ul>${listItems}</ul></div>`;
+    return headings.length ? `<div class="toc"><h2>Table of Contents</h2><ul>${headings.map(h => `<li class="toc-level-${h.level}"><a href="#${h.id}">${h.text}</a></li>`).join('\n')}</ul></div>` : '';
   }
 
-  async renderHtml(markdown, overrides = {}) {
-    const options = { ...this.options, ...overrides };
-    let { data, content } = this.parseFrontmatter(markdown);
+  createMarkedInstance(tocHtml = '') {
+    return new Marked()
+      .use(markedHighlight({ langPrefix: 'hljs language-', highlight: (c, l) => hljs.highlight(c, { language: hljs.getLanguage(l) ? l : 'plaintext' }).value }))
+      .use(gfmHeadingId()).use(footnote()).use({
+        renderer: { paragraph(t) { return t.text.trim().toLowerCase() === '[toc]' ? tocHtml + '\n' : `<p>${this.parser.parseInline(t.tokens)}</p>\n`; } }
+      }).setOptions({ gfm: true, breaks: true });
+  }
 
-    content = content.replace(/<!--\s*PAGE_BREAK\s*-->/g, '<div class="page-break"></div>');
+  async renderHtml(md, overrides = {}) {
+    const opts = { ...this.options, ...overrides };
+    const { data, content: raw } = this.parseFrontmatter(md);
+    const content = raw.replace(/<!--\s*PAGE_BREAK\s*-->/g, '<div class="page-break"></div>');
+    const tokens = new Marked().use(gfmHeadingId()).use(footnote()).lexer(content);
+    const tocHtml = (opts.toc || /\[TOC\]/i.test(content)) ? this.generateToc(tokens) : '';
+    let html = this.createMarkedInstance(tocHtml).parser(tokens);
+    if (tocHtml && opts.toc && !/\[toc\]/i.test(content)) html = tocHtml + html;
 
-    // Single pass for lexing
-    const lexerMarked = new Marked()
-      .use(gfmHeadingId())
-      .use(footnote());
-    const tokens = lexerMarked.lexer(content);
-    
-    const hasTocTag = /\[TOC\]/i.test(content);
-    const tocEnabled = options.toc || hasTocTag;
-    let tocHtml = '';
-    if (tocEnabled) {
-      tocHtml = this.generateToc(tokens);
-    }
-
-    // Use tokens for the second pass too
-    const marked = this.createMarkedInstance(tocHtml);
-    let htmlContent = marked.parser(tokens);
-
-    // If TOC is explicitly enabled but no [TOC] tag was found in the content, prepend it.
-    if (tocHtml && options.toc && !/\[toc\]/i.test(content)) {
-      htmlContent = tocHtml + htmlContent;
-    }
-    
-    let extraCss = '';
-    if (options.customCss) {
-      try {
-        extraCss = await readFile(options.customCss, 'utf-8');
-      } catch (e) {
-        console.warn(`Failed to load custom CSS: ${e.message}`);
-      }
-    }
-
-    const title = overrides.title || data.title || 'Markdown Document';
-    // Sanitize basePath for use in attribute
-    const sanitizedBasePath = options.basePath ? options.basePath.replace(/"/g, '&quot;') : '';
-    // Ensure file:// URLs are correctly formatted (especially for Windows)
-    let baseHref = '';
-    if (sanitizedBasePath) {
-      const normalizedPath = sanitizedBasePath.replace(/\\/g, '/');
-      baseHref = `file://${normalizedPath.startsWith('/') ? '' : '/'}${normalizedPath}/`;
-    }
-    const basePathTag = baseHref ? `<base href="${baseHref}">` : '';
-    const combinedCss = DEFAULT_CSS + '\n' + HIGHLIGHT_CSS + '\n' + extraCss;
-
-    // More robust MathJax detection: look for pairs of $ (not preceded by backslash)
-    // with no space immediately after the opening $ and no space immediately before the closing $
-    // or block math $$, or LaTeX delimiters \( \) \[ \]
-    const mathEnabled = options.math !== false;
-    const hasMath = mathEnabled && /(?<!\\)\$[^$\s][^$]*[^$\s]\$|(?<!\\)\$[^$\s]\$|(?<!\\)\$\$[\s\S]+\$\$|\\\(|\\\[/.test(content);
-    const mathJaxScript = hasMath ? `
-  <script>
-    window.MathJax = {
-      tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$'], ['\\[', '\\]']] },
-      svg: { fontCache: 'global' },
-      options: { enableErrorOutputs: false }
-    };
-  </script>
+    const css = `${DEFAULT_CSS}\n${HIGHLIGHT_CSS}\n${opts.customCss ? await readFile(opts.customCss, 'utf-8').catch(() => '') : ''}`;
+    const base = opts.basePath ? `<base href="${pathToFileURL(resolve(opts.basePath)).href}/">` : '';
+    const math = (opts.math !== false && /(?<!\\)\$[^$\s][^$]*[^$\s]\$|(?<!\\)\$[^$\s]\$|(?<!\\)\$\$[\s\S]+\$\$|\\\(|\\\[/.test(content)) ? `
+  <script>window.MathJax = { tex: { inlineMath: [['$', '$'], ['\\\\(', '\\\\)']], displayMath: [['$$', '$$'], ['\\\\[', '\\\\]']] }, svg: { fontCache: 'global' }, options: { enableErrorOutputs: false } };</script>
   <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>` : '';
 
-    if (options.template) {
-      try {
-        const template = await readFile(options.template, 'utf-8');
-        // Use global regex to replace all occurrences and handle potential $ in content safely
-        return template
-          .replace(/{{title}}/g, () => title)
-          .replace(/{{base}}/g, () => basePathTag)
-          .replace(/{{css}}/g, () => combinedCss)
-          .replace(/{{content}}/g, () => htmlContent)
-          .replace(/{{mathjax}}/g, () => mathJaxScript);
-      } catch (e) {
-        console.warn(`Failed to load template: ${e.message}. Using default.`);
-      }
-    }
-
-    return `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  ${basePathTag}
-  <title>${title}</title>
-  <style>${combinedCss}</style>${mathJaxScript}
-</head>
-<body class="markdown-body">${htmlContent}</body>
-</html>`;
+    const tpl = opts.template ? await readFile(opts.template, 'utf-8').catch(() => null) : null;
+    return (tpl || `<!DOCTYPE html><html><head><meta charset="UTF-8">{{base}}<title>{{title}}</title><style>{{css}}</style>{{mathjax}}</head><body class="markdown-body">{{content}}</body></html>`)
+      .replace(/{{title}}/g, () => overrides.title || data.title || 'Markdown Document')
+      .replace(/{{base}}/g, () => base).replace(/{{css}}/g, () => css).replace(/{{content}}/g, () => html).replace(/{{mathjax}}/g, () => math);
   }
 
-  async generatePdf(markdown, outputPath, overrides = {}) {
-    const options = { ...this.options, ...overrides };
-    
-    // Ensure basePath is absolute for puppeteer if it's not already
-    if (options.basePath) {
-        const absolutePath = resolve(options.basePath).replace(/\\/g, '/');
-        options.basePath = absolutePath.startsWith('/') ? absolutePath : `/${absolutePath}`;
-    }
-
-    const html = await this.renderHtml(markdown, options);
-
+  async generatePdf(md, outputPath, overrides = {}) {
+    const opts = { ...this.options, ...overrides };
+    const html = await this.renderHtml(md, opts);
     await this.init();
-
     try {
-      // Use the reused page
-      await this.page.setContent(html, { 
-        waitUntil: 'domcontentloaded',
-        timeout: 60000 
-      });
-
+      await this.page.setContent(html, { waitUntil: 'domcontentloaded', timeout: 60000 });
       await this.page.evaluate(async () => {
-        // Wait for MathJax to be available and ready
-        const waitForMathJax = () => {
-          return new Promise((resolve) => {
-            if (window.MathJax && window.MathJax.typesetPromise) {
-              return resolve();
-            }
-            const interval = setInterval(() => {
-              if (window.MathJax && window.MathJax.typesetPromise) {
-                clearInterval(interval);
-                resolve();
-              }
-            }, 100);
-            // Timeout after 10s to avoid hanging forever
-            setTimeout(() => {
-              clearInterval(interval);
-              resolve();
-            }, 10000);
-          });
-        };
-
-        if (document.getElementById('MathJax-script')) {
-          await waitForMathJax();
-          try {
-            await window.MathJax.typesetPromise();
-          } catch (e) {
-            console.warn('MathJax typeset failed:', e);
-          }
-        }
+        if (!document.getElementById('MathJax-script')) return;
+        await new Promise(r => {
+          const check = () => { if (window.MathJax?.typesetPromise) r(); else setTimeout(check, 100); };
+          check();
+          setTimeout(r, 10000);
+        });
+        await window.MathJax.typesetPromise().catch(() => {});
       });
-
       await this.page.pdf({
-        path: outputPath,
-        format: options.format,
-        margin: {
-          top: options.margin,
-          right: options.margin,
-          bottom: options.margin,
-          left: options.margin
-        },
-        printBackground: true,
-        displayHeaderFooter: !!(options.headerTemplate || options.footerTemplate),
-        headerTemplate: options.headerTemplate || '<span></span>',
-        footerTemplate: options.footerTemplate || '<span></span>'
+        path: outputPath, format: opts.format, printBackground: true,
+        margin: { top: opts.margin, right: opts.margin, bottom: opts.margin, left: opts.margin },
+        displayHeaderFooter: !!(opts.headerTemplate || opts.footerTemplate),
+        headerTemplate: opts.headerTemplate || '<span></span>', footerTemplate: opts.footerTemplate || '<span></span>'
       });
-    } catch (error) {
-       // If page crashed or something, we might want to recreate it for next call
-       if (error.message.includes('Session closed')) {
-         this.page = null;
-         await this.init();
-       }
-       throw error;
-    }
+    } catch (e) { if (e.message.includes('Session closed')) this.page = null; throw e; }
   }
 }
-

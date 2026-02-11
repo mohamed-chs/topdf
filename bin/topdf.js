@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-
 import { Command } from 'commander';
 import { readFile, stat, mkdir } from 'fs/promises';
 import { resolve, basename, extname, join, dirname } from 'path';
@@ -10,146 +9,80 @@ import yaml from 'js-yaml';
 import { Renderer } from '../src/renderer.js';
 
 const program = new Command();
-
-async function loadConfig() {
-  const configPaths = ['.topdfrc', '.topdfrc.json', '.topdfrc.yaml', '.topdfrc.yml'];
-  for (const p of configPaths) {
-    try {
-      return yaml.load(await readFile(resolve(p), 'utf-8'));
-    } catch {}
+const loadConfig = async () => {
+  for (const p of ['.topdfrc', '.topdfrc.json', '.topdfrc.yaml', '.topdfrc.yml']) {
+    try { return yaml.load(await readFile(resolve(p), 'utf-8')); } catch {}
   }
   return {};
-}
+};
 
 program
   .name('topdf')
-  .description('Convert Markdown to high-quality PDF. Supports [TOC], footnotes, and <!-- PAGE_BREAK -->.')
+  .description('Convert Markdown to high-quality PDF.')
   .version('1.0.0')
   .argument('<inputs...>', 'Input markdown files or glob patterns')
-  .option('-o, --output <path>', 'Output directory (or file path if single input)')
-  .option('-w, --watch', 'Watch for changes and reconvert')
-  .option('-c, --css <path>', 'Custom CSS file path')
-  .option('-t, --template <path>', 'Custom HTML template path')
-  .option('-m, --margin <margin>', 'Page margin (e.g., 20mm, 1in)', '20mm')
-  .option('-f, --format <format>', 'PDF page format (e.g., A4, Letter)', 'A4')
-  .option('--header <path>', 'Custom HTML header template path')
-  .option('--footer <path>', 'Custom HTML footer template path')
-  .option('--toc', 'Generate a Table of Contents at the start of the document')
-  .option('--no-math', 'Disable MathJax auto-detection and rendering')
+  .option('-o, --output <path>', 'Output directory or file path')
+  .option('-w, --watch', 'Watch for changes')
+  .option('-c, --css <path>', 'Custom CSS')
+  .option('-t, --template <path>', 'Custom HTML template')
+  .option('-m, --margin <margin>', 'Page margin', '20mm')
+  .option('-f, --format <format>', 'PDF format', 'A4')
+  .option('--header <path>', 'Custom header template')
+  .option('--footer <path>', 'Custom footer template')
+  .option('--toc', 'Generate Table of Contents')
+  .option('--no-math', 'Disable MathJax')
   .action(async (inputs, options) => {
-    const config = await loadConfig();
-    const opts = { ...config, ...options };
+    const opts = { ...await loadConfig(), ...options };
+    const getFiles = async () => [...new Set((await Promise.all(inputs.map(i => glob(i)))).flat().filter(f => /\.(md|markdown)$/i.test(f)))];
     
-    async function getFiles() {
-      const found = (await Promise.all(inputs.map(i => glob(i))))
-        .flat()
-        .filter(f => /\.(md|markdown)$/i.test(f));
-      return [...new Set(found)]; // Deduplicate
-    }
-
     let files = await getFiles();
+    if (!files.length) { console.error(chalk.red('Error: No input files found.')); process.exit(1); }
+    if (files.length > 1 && opts.output?.endsWith('.pdf')) { console.error(chalk.red('Error: Output path cannot be a .pdf file for multiple inputs.')); process.exit(1); }
 
-    if (files.length === 0) {
-      console.error(chalk.red('Error: No input files found.'));
-      process.exit(1);
-    }
-
-    const isMultipleFiles = files.length > 1;
-
-    if (isMultipleFiles && opts.output && opts.output.endsWith('.pdf')) {
-      console.error(chalk.red('Error: Output path cannot be a .pdf file when converting multiple inputs. Please specify a directory.'));
-      process.exit(1);
-    }
-
-    const sharedRenderer = new Renderer({
-        customCss: opts.css ? resolve(opts.css) : null,
-        template: opts.template ? resolve(opts.template) : null,
-        margin: opts.margin,
-        format: opts.format,
-        toc: opts.toc,
-        math: opts.math,
-        headerTemplate: opts.header ? await readFile(resolve(opts.header), 'utf-8') : null,
-        footerTemplate: opts.footer ? await readFile(resolve(opts.footer), 'utf-8') : null
+    const readTpl = async (p) => p ? readFile(resolve(p), 'utf-8') : null;
+    const renderer = new Renderer({
+      customCss: opts.css ? resolve(opts.css) : null,
+      template: opts.template ? resolve(opts.template) : null,
+      margin: opts.margin,
+      format: opts.format,
+      toc: opts.toc,
+      math: opts.math,
+      headerTemplate: await readTpl(opts.header),
+      footerTemplate: await readTpl(opts.footer)
     });
 
-    let successCount = 0;
-    let failCount = 0;
-
-    async function convert(file) {
+    let [success, fail] = [0, 0];
+    const convert = async (file) => {
       try {
-        const inputPath = resolve(file);
-        if ((await stat(inputPath)).isDirectory()) return;
+        const input = resolve(file);
+        if ((await stat(input)).isDirectory()) return;
 
-        const markdown = await readFile(inputPath, 'utf-8');
-        let outputPath = opts.output;
-        
-        if (!outputPath) {
-          const name = basename(inputPath, extname(inputPath));
-          outputPath = join(dirname(inputPath), `${name}.pdf`);
-        } else {
-          outputPath = resolve(outputPath);
-          let isDirectory = false;
-          try {
-            const s = await stat(outputPath);
-            isDirectory = s.isDirectory();
-          } catch (e) {
-            // If it doesn't exist, decide based on context
-            // If we have multiple files, it MUST be a directory
-            // If we have one file but it's from a glob, we still prefer directory for consistency
-            // If it doesn't end in .pdf, we assume it's a directory
-            if (isMultipleFiles || !outputPath.endsWith('.pdf')) {
-              isDirectory = true;
-            }
-          }
+        const out = opts.output ? resolve(opts.output) : null;
+        const isDir = out ? (await stat(out).catch(() => null))?.isDirectory() ?? (files.length > 1 || !out.endsWith('.pdf')) : false;
+        const outputPath = isDir ? join(out, `${basename(input, extname(input))}.pdf`) : (out || join(dirname(input), `${basename(input, extname(input))}.pdf`));
 
-          if (isDirectory) {
-            const name = basename(inputPath, extname(inputPath));
-            outputPath = join(outputPath, `${name}.pdf`);
-          }
-        }
-
-        // Ensure output directory exists
         await mkdir(dirname(outputPath), { recursive: true });
-
         console.log(chalk.blue(`Converting ${chalk.bold(file)} → ${chalk.bold(outputPath)}...`));
-        
-        await sharedRenderer.generatePdf(markdown, outputPath, { basePath: dirname(inputPath) });
+        await renderer.generatePdf(await readFile(input, 'utf-8'), outputPath, { basePath: dirname(input) });
         console.log(chalk.green(`✔ Done: ${basename(outputPath)}`));
-        successCount++;
-      } catch (error) {
-        console.error(chalk.red('Error:'), error.message);
-        failCount++;
-      }
-    }
+        success++;
+      } catch (e) { console.error(chalk.red('Error:'), e.message); fail++; }
+    };
 
-    for (const file of files) await convert(file);
+    for (const f of files) await convert(f);
 
     if (options.watch) {
       console.log(chalk.yellow('\nWatching for changes... (Press Ctrl+C to stop)'));
-      chokidar.watch(inputs, { ignored: /(^|[\/\\])\../, persistent: true })
-        .on('change', async path => {
-          if (/\.(md|markdown)$/i.test(path)) {
-            console.log(chalk.cyan(`\nChange detected in ${path}`));
-            await convert(path);
-          }
-        })
-        .on('add', async path => {
-          if (/\.(md|markdown)$/i.test(path)) {
-            // Check if we already have it to avoid double-triggering on startup if chokidar is fast
-            // but usually 'add' is for new files during watch
-            console.log(chalk.cyan(`\nNew file detected: ${path}`));
-            await convert(path);
-          }
-        });
+      chokidar.watch(inputs, { ignored: /(^|[\/\\])\../, persistent: true }).on('all', async (event, path) => {
+        if (['add', 'change'].includes(event) && /\.(md|markdown)$/i.test(path)) {
+          console.log(chalk.cyan(`\n${event === 'add' ? 'New file' : 'Change'} detected: ${path}`));
+          await convert(path);
+        }
+      });
     } else {
-      await sharedRenderer.close();
-      if (successCount > 0) {
-        console.log(chalk.green(`\n✔ Successfully converted ${successCount} file(s).`));
-      }
-      if (failCount > 0) {
-        console.log(chalk.red(`\n✖ Failed to convert ${failCount} file(s).`));
-        process.exit(1);
-      }
+      await renderer.close();
+      if (success) console.log(chalk.green(`\n✔ Successfully converted ${success} file(s).`));
+      if (fail) { console.log(chalk.red(`\n✖ Failed to convert ${fail} file(s).`)); process.exit(1); }
     }
   });
 
