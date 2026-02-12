@@ -117,7 +117,30 @@ pre code {
 .toc-level-6 { padding-left: 5rem; }
 
 @media print {
-  body { padding: 0; max-width: none; }
+  body {
+    padding: 0;
+    max-width: none;
+    width: 100%;
+    font-size: 12pt;
+  }
+
+  /* Prevent long content from causing the page to zoom out */
+  pre, code, table {
+    max-width: 100%;
+    overflow-wrap: break-word;
+    word-wrap: break-word;
+  }
+
+  pre {
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+
+  img {
+    max-width: 100%;
+    height: auto;
+  }
+
   .page-break { page-break-before: always; }
   h1, h2, h3, h4, h5, h6 { page-break-after: avoid; }
   table, pre, blockquote, .toc { page-break-inside: avoid; }

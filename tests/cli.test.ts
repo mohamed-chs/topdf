@@ -42,6 +42,30 @@ describe('CLI', () => {
     expect(existsSync(join(d, 'i.pdf'))).toBe(true);
   });
 
+  it('converts markdown with local images', { timeout: 30000 }, () => {
+    const d = join(out, 'images');
+    if (!existsSync(d)) mkdirSync(d, { recursive: true });
+    // 1x1 red PNG
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==', 'base64');
+    writeFileSync(join(d, 'pixel.png'), png);
+    writeFileSync(join(d, 'img.md'), '# Image Test\n\n![pixel](./pixel.png)\n');
+    execSync(`node ${bin} img.md -o img.pdf`, { cwd: d });
+    expect(existsSync(join(d, 'img.pdf'))).toBe(true);
+    // Verify no temp files left behind
+    const files = require('fs').readdirSync(d);
+    expect(files.some((f: string) => f.startsWith('.topdf-tmp-'))).toBe(false);
+  });
+
+  it('converts markdown with syntax highlighting', { timeout: 30000 }, () => {
+    execSync(`node ${bin} examples/comprehensive/syntax-bonanza.md -o ${out}/syntax.pdf`);
+    expect(existsSync(`${out}/syntax.pdf`)).toBe(true);
+  });
+
+  it('converts markdown with display math', { timeout: 30000 }, () => {
+    execSync(`node ${bin} examples/comprehensive/math-heavy.md -o ${out}/math.pdf`);
+    expect(existsSync(`${out}/math.pdf`)).toBe(true);
+  });
+
   it('fails on no inputs', () => {
     expect(() => execSync(`node ${bin} nope.md`, { stdio: 'pipe' })).toThrow();
   });

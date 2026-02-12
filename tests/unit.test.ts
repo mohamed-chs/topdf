@@ -33,7 +33,17 @@ describe('Renderer', () => {
   });
 
   it('highlights code', async () => {
-    expect(await r.renderHtml('```js\nconst x = 1;\n```')).toContain('hljs language-js');
+    const html = await r.renderHtml('```js\nconst x = 1;\n```');
+    expect(html).toContain('hljs language-js');
+    // Verify actual syntax highlighting spans are produced (not just class names)
+    expect(html).toContain('<span class="hljs-keyword">const</span>');
+  });
+
+  it('highlights code for multiple languages', async () => {
+    const html = await r.renderHtml('```rust\nfn main() {\n    let x = 5;\n}\n```');
+    expect(html).toContain('hljs language-rust');
+    expect(html).toContain('<span class="hljs-keyword">fn</span>');
+    expect(html).toContain('<span class="hljs-keyword">let</span>');
   });
 
   it('generates TOC', async () => {
@@ -72,5 +82,38 @@ describe('Renderer', () => {
 
   it('handles tables with alignment', async () => {
     expect(await r.renderHtml('| L | R |\n|:-|-:|\n| 1 | 2 |')).toContain('align="left"');
+  });
+
+  it('preserves double backslashes in display math', async () => {
+    const md = '$$\n\\begin{aligned}\na &= b \\\\\nc &= d\n\\end{aligned}\n$$';
+    const html = await r.renderHtml(md);
+    // Double backslashes must survive Marked processing (not become \<br>)
+    expect(html).toContain('a &= b \\\\');
+    expect(html).toContain('c &= d');
+    // $$ delimiters must be preserved
+    expect(html).toContain('$$');
+  });
+
+  it('preserves ampersands in display math', async () => {
+    const md = '$$\nx &= y + z\n$$';
+    const html = await r.renderHtml(md);
+    // & must NOT be HTML-escaped to &amp; inside math
+    expect(html).toContain('x &= y + z');
+    expect(html).not.toContain('x &amp;= y + z');
+  });
+
+  it('does not mangle math inside code blocks', async () => {
+    const md = '```tex\n$$\na &= b \\\\\n$$\n```';
+    const html = await r.renderHtml(md);
+    // Code blocks should still be processed normally (not treated as math)
+    expect(html).toContain('hljs language-tex');
+  });
+
+  it('handles inline math alongside display math', async () => {
+    const md = 'Inline $x^2$ and display:\n\n$$\n\\sum_{i=1}^{n} i = \\frac{n(n+1)}{2}\n$$';
+    const html = await r.renderHtml(md);
+    expect(html).toContain('$x^2$');
+    expect(html).toContain('$$');
+    expect(html).toContain('\\sum_{i=1}^{n}');
   });
 });

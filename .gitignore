@@ -5,3 +5,4 @@ dist
 *.jpg
 .DS_Store
 tests/output*/
+.topdf-tmp-*

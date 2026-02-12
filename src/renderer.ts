@@ -7,15 +7,76 @@ import hljs from 'highlight.js';
 import puppeteer from 'puppeteer';
 import type { Browser, Page } from 'puppeteer';
 import yaml from 'js-yaml';
-import { readFile } from 'fs/promises';
+import { readFile, writeFile, unlink } from 'fs/promises';
 import { join, dirname, resolve } from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
+import { randomBytes } from 'crypto';
 import GithubSlugger from 'github-slugger';
 import type { RendererOptions, Frontmatter, TocHeading, RenderResult, CustomToken, PaperFormat } from './types.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const read = (p: string) => readFile(join(__dirname, p), 'utf-8');
 const [DEFAULT_CSS, HIGHLIGHT_CSS] = await Promise.all([read('styles/default.css'), read('styles/github.css')]);
+
+/**
+ * Protect math blocks from Marked processing.
+ *
+ * Marked's `breaks: true` option converts `\\` at end-of-line into `\<br>`,
+ * and its HTML escaping turns `&` into `&amp;` inside math environments.
+ * We extract math blocks before lexing and replace them with inert
+ * placeholders, then restore the original LaTeX after Marked has produced HTML.
+ */
+function protectMath(content: string): { text: string; restore: (html: string) => string } {
+  const placeholders: Map<string, string> = new Map();
+  let counter = 0;
+
+  const nextPlaceholder = (original: string): string => {
+    const id = `MATH_PLACEHOLDER_${counter++}_${randomBytes(4).toString('hex')}`;
+    placeholders.set(id, original);
+    return id;
+  };
+
+  // Protect fenced code blocks first so we never touch math inside code
+  const codeBlocks: Map<string, string> = new Map();
+  let codeCtr = 0;
+  let text = content.replace(/^(`{3,})[^\n]*\n[\s\S]*?\n\1\s*$/gm, (match) => {
+    const id = `CODE_GUARD_${codeCtr++}`;
+    codeBlocks.set(id, match);
+    return id;
+  });
+
+  // Protect display math blocks.
+  // We handle three forms in order of specificity:
+  //
+  // 1. Multiline: $$ on its own line, content, $$ on its own line.
+  //    The key is that the content between the delimiters must NOT contain
+  //    a line that is just `$$` (non-greedy within lines only).
+  text = text.replace(/^\$\$[ \t]*\n((?:(?!\$\$).*\n)*?)^\$\$[ \t]*$/gm, (match) => nextPlaceholder(match));
+
+  // 2. Single-line display math: $$ content $$ (all on one line)
+  text = text.replace(/\$\$([^\n]+?)\$\$/g, (match) => nextPlaceholder(match));
+
+  // 3. \[ ... \] display math (possibly multiline)
+  text = text.replace(/^\\\[[ \t]*\n((?:(?!\\\]).*\n)*?)^\\\][ \t]*$/gm, (match) => nextPlaceholder(match));
+  // Single-line \[ ... \]
+  text = text.replace(/\\\[[^\n]*?\\\]/g, (match) => nextPlaceholder(match));
+
+  // Restore code blocks
+  for (const [id, code] of codeBlocks) {
+    text = text.split(id).join(code);
+  }
+
+  const restore = (html: string): string => {
+    for (const [id, original] of placeholders) {
+      // Use split+join instead of replace() to avoid special replacement
+      // patterns ($$ means literal $ in replacement strings)
+      html = html.split(id).join(original);
+    }
+    return html;
+  };
+
+  return { text, restore };
+}
 
 export class Renderer {
   private options: RendererOptions;
@@ -141,9 +202,21 @@ export class Renderer {
     const { data, content } = this.parseFrontmatter(md);
     const slugger = new GithubSlugger();
     const marked = this.createMarkedInstance(slugger);
-    const tokens = marked.lexer(content) as unknown as CustomToken[];
 
-    // Populate IDs for TOC
+    // Protect display math from Marked's breaks/escaping before lexing
+    const { text: safeContent, restore: restoreMath } = protectMath(content);
+
+    const tokens = marked.lexer(safeContent) as unknown as CustomToken[];
+
+    // Run all registered walkTokens hooks (marked-highlight, heading IDs, etc.)
+    // This is required because lexer() + parser() skips walkTokens, but
+    // marked-highlight relies on walkTokens to inject highlighted code into tokens.
+    if (marked.defaults.walkTokens) {
+      marked.walkTokens(tokens as unknown as Token[], marked.defaults.walkTokens);
+    }
+
+    // Populate IDs for TOC (walkTokens above handles the extension hooks,
+    // but the manual walk here serves as a fallback for any heading without an id)
     const walk = (items: CustomToken[]) => {
       for (const t of items) {
         if (t.type === 'heading' && !t.id && t.text) {
@@ -164,7 +237,7 @@ export class Renderer {
     const tocDepth = data.tocDepth || opts.tocDepth || 6;
     const hasTocPlaceholder = tokens.some(t => t.type === 'tocPlaceholder');
     const tocHtml = (opts.toc || hasTocPlaceholder) ? this.generateToc(tokens, tocDepth) : '';
-    let html = marked.parser(tokens as unknown as Token[]);
+    let html = restoreMath(marked.parser(tokens as unknown as Token[]));
 
     if (tocHtml) {
       if (html.includes('[[TOC_PLACEHOLDER]]')) {
@@ -189,7 +262,7 @@ export class Renderer {
   <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>` : '';
 
     const tpl = opts.template ? await readFile(opts.template, 'utf-8').catch(() => null) : null;
-    return (tpl || `<!DOCTYPE html><html><head><meta charset="UTF-8">{{base}}<title>{{title}}</title><style>{{css}}</style>{{mathjax}}</head><body class="markdown-body">{{content}}</body></html>`)
+    return (tpl || `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">{{base}}<title>{{title}}</title><style>{{css}}</style>{{mathjax}}</head><body class="markdown-body">{{content}}</body></html>`)
       .replace(/{{title}}/g, () => overrides.title || data.title || 'Markdown Document')
       .replace(/{{base}}/g, () => base).replace(/{{css}}/g, () => css).replace(/{{content}}/g, () => html).replace(/{{mathjax}}/g, () => math);
   }
@@ -200,8 +273,21 @@ export class Renderer {
     await this.init();
     if (!this.page) throw new Error('Browser page not initialized');
 
+    // Write HTML to a temp file so Puppeteer navigates via file:// URL.
+    // This allows the browser to load local images referenced with relative
+    // paths (or file:// URLs) which setContent() blocks for security reasons.
+    const tempDir = opts.basePath ? resolve(opts.basePath) : dirname(resolve(outputPath));
+    const tempHtmlPath = join(tempDir, `.topdf-tmp-${randomBytes(8).toString('hex')}.html`);
+    await writeFile(tempHtmlPath, html, 'utf-8');
+
     try {
-      await this.page.setContent(html, { waitUntil: 'domcontentloaded', timeout: 60000 });
+      // Emulate print media so @media print CSS rules are applied during
+      // rendering. Without this, the page renders in "screen" mode and the
+      // PDF may have inconsistent sizing (e.g. max-width constraints that
+      // shouldn't apply in print, or missing print-specific overrides).
+      await this.page.emulateMediaType('print');
+
+      await this.page.goto(pathToFileURL(tempHtmlPath).href, { waitUntil: 'domcontentloaded', timeout: 60000 });
       await this.page.evaluate(async () => {
         // Wait for images
         const images = Array.from(document.querySelectorAll('img'));
@@ -268,6 +354,8 @@ export class Renderer {
       const error = e as Error;
       if (error.message?.includes('Session closed')) this.page = null; 
       throw error; 
+    } finally {
+      await unlink(tempHtmlPath).catch(() => {});
     }
   }
 }
