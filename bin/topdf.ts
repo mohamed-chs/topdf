@@ -36,7 +36,7 @@ const loadConfig = async (): Promise<ConfigFile> => {
       const configPath = resolve(p);
       const config = yaml.load(await readFile(configPath, 'utf-8')) as ConfigFile;
       if (!config) continue;
-      
+
       const configDir = dirname(configPath);
       if (config.css) config.css = resolve(configDir, config.css);
       if (config.template) config.template = resolve(configDir, config.template);
@@ -69,7 +69,7 @@ program
   .action(async (inputs: string[], options: CliOptions) => {
     const config = await loadConfig();
     const opts = { ...config, ...options };
-    
+
     const getFiles = async (): Promise<string[]> => {
       const expanded = await Promise.all(inputs.map(async (i: string) => {
         try {
@@ -82,19 +82,19 @@ program
       }));
       return [...new Set(expanded.flat().filter(f => /\.(md|markdown)$/i.test(f)))];
     };
-    
+
     const files = await getFiles();
-    if (!files.length) { 
-      console.error(chalk.red('Error: No input files found.')); 
-      process.exit(1); 
+    if (!files.length) {
+      console.error(chalk.red('Error: No input files found.'));
+      process.exit(1);
     }
-    if (files.length > 1 && opts.output?.endsWith('.pdf')) { 
-      console.error(chalk.red('Error: Output path cannot be a .pdf file for multiple inputs.')); 
-      process.exit(1); 
+    if (files.length > 1 && opts.output?.endsWith('.pdf')) {
+      console.error(chalk.red('Error: Output path cannot be a .pdf file for multiple inputs.'));
+      process.exit(1);
     }
 
     const readTpl = async (p?: string): Promise<string | null> => p ? readFile(resolve(p), 'utf-8') : null;
-    
+
     const renderer = new Renderer({
       customCss: opts.css ? resolve(opts.css) : null,
       template: opts.template ? resolve(opts.template) : null,
@@ -122,7 +122,7 @@ program
         if (out) {
           const outExists = await stat(out).catch(() => null);
           const isExplicitDir = outExists?.isDirectory() || (!out.toLowerCase().endsWith('.pdf'));
-          
+
           if (files.length > 1 || isExplicitDir) {
             outputPath = join(out, `${basename(input, extname(input))}.pdf`);
           } else {
@@ -137,10 +137,10 @@ program
         await renderer.generatePdf(await readFile(input, 'utf-8'), outputPath, { basePath: dirname(input) });
         console.log(chalk.green(`✔ Done: ${basename(outputPath)}`));
         successCount++;
-      } catch (e: unknown) { 
-        const error = e as Error;
-        console.error(chalk.red('Error:'), error.message); 
-        failCount++; 
+      } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : String(e);
+        console.error(chalk.red('Error:'), message);
+        failCount++;
       }
     };
 
@@ -151,7 +151,7 @@ program
       await renderer.close();
       process.exit(0);
     };
-    
+
     process.on('SIGINT', cleanup);
     process.on('SIGTERM', cleanup);
 
@@ -166,9 +166,9 @@ program
     } else {
       await renderer.close();
       if (successCount) console.log(chalk.green(`\n✔ Successfully converted ${successCount} file(s).`));
-      if (failCount) { 
-        console.log(chalk.red(`\n✖ Failed to convert ${failCount} file(s).`)); 
-        process.exit(1); 
+      if (failCount) {
+        console.log(chalk.red(`\n✖ Failed to convert ${failCount} file(s).`));
+        process.exit(1);
       }
     }
   });

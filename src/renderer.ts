@@ -109,8 +109,8 @@ export class Renderer {
       const data = yaml.load(frontmatterStr) as Frontmatter || {};
       return { data, content: md.replace(m[0], '') };
     } catch (e: unknown) {
-      const error = e as Error;
-      console.warn('Frontmatter error:', error.message);
+      const message = e instanceof Error ? e.message : String(e);
+      console.warn('Frontmatter error:', message);
       return { data: {}, content: md };
     }
   }
@@ -351,9 +351,10 @@ export class Renderer {
         footerTemplate: opts.footerTemplate || '<div style="font-size: 10px; width: 100%; text-align: center; color: #666;"><span class="pageNumber"></span> / <span class="totalPages"></span></div>'
       });
     } catch (e: unknown) {
-      const error = e as Error;
-      if (error.message?.includes('Session closed')) this.page = null;
-      throw error;
+      if (e instanceof Error && e.message.includes('Session closed')) {
+        this.page = null;
+      }
+      throw e;
     } finally {
       await unlink(tempHtmlPath).catch(() => { });
     }
