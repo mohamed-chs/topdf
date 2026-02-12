@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from 'vitest';
-import { existsSync, mkdirSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, writeFileSync, readdirSync } from 'fs';
 import { execSync } from 'child_process';
 import { join, resolve } from 'path';
 
@@ -8,8 +8,8 @@ const bin = resolve('dist/bin/topdf.js');
 const out = resolve('tests/output_cli');
 
 describe('CLI', () => {
-  beforeAll(() => { 
-    if (!existsSync(out)) mkdirSync(out, { recursive: true }); 
+  beforeAll(() => {
+    if (!existsSync(out)) mkdirSync(out, { recursive: true });
   });
 
   it('converts single file', { timeout: 30000 }, () => {
@@ -52,7 +52,7 @@ describe('CLI', () => {
     execSync(`node ${bin} img.md -o img.pdf`, { cwd: d });
     expect(existsSync(join(d, 'img.pdf'))).toBe(true);
     // Verify no temp files left behind
-    const files = require('fs').readdirSync(d);
+    const files = readdirSync(d);
     expect(files.some((f: string) => f.startsWith('.topdf-tmp-'))).toBe(false);
   });
 
