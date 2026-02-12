@@ -183,7 +183,7 @@ export class Renderer {
           link(token: Tokens.Link) {
             const { href, title, text } = token;
             const isExternal = /^(?:[a-z+]+:)?\/\//i.test(href);
-            const newHref = (!isExternal && href.toLocaleLowerCase().endsWith('.md'))
+            const newHref = (!isExternal && href.toLowerCase().endsWith('.md'))
               ? href.replace(/\.md$/i, '.pdf')
               : href;
             let out = `<a href="${newHref}"`;
@@ -303,24 +303,24 @@ export class Renderer {
         // Wait for MathJax
         const mathJaxScript = document.getElementById('MathJax-script');
         if (!mathJaxScript) return;
-        
+
         interface MathJaxWindow extends Window {
           MathJax?: {
             typesetPromise: () => Promise<void>;
           };
         }
-        
+
         const win = window as unknown as MathJaxWindow;
 
         await new Promise<void>(r => {
-          const check = () => { 
-            if (win.MathJax?.typesetPromise) r(); 
-            else setTimeout(check, 100); 
+          const check = () => {
+            if (win.MathJax?.typesetPromise) r();
+            else setTimeout(check, 100);
           };
           check();
           setTimeout(r, 10000);
         });
-        await win.MathJax?.typesetPromise().catch(() => {});
+        await win.MathJax?.typesetPromise().catch(() => { });
       });
 
       const marginParts = String(opts.margin).split(/\s+/).filter(Boolean);
@@ -342,20 +342,20 @@ export class Renderer {
       }
 
       await this.page.pdf({
-        path: outputPath, 
+        path: outputPath,
         format: opts.format as PaperFormat,
         printBackground: true,
         margin: m,
         displayHeaderFooter: !!(opts.headerTemplate || opts.footerTemplate),
-        headerTemplate: opts.headerTemplate || '<span></span>', 
+        headerTemplate: opts.headerTemplate || '<span></span>',
         footerTemplate: opts.footerTemplate || '<div style="font-size: 10px; width: 100%; text-align: center; color: #666;"><span class="pageNumber"></span> / <span class="totalPages"></span></div>'
       });
-    } catch (e: unknown) { 
+    } catch (e: unknown) {
       const error = e as Error;
-      if (error.message?.includes('Session closed')) this.page = null; 
-      throw error; 
+      if (error.message?.includes('Session closed')) this.page = null;
+      throw error;
     } finally {
-      await unlink(tempHtmlPath).catch(() => {});
+      await unlink(tempHtmlPath).catch(() => { });
     }
   }
 }
