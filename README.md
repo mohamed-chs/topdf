@@ -45,3 +45,5 @@ npm test
 # Run in dev mode without build
 npm run dev -- input.md
 ```
+
+> Inspired by [simonhaenisch/md-to-pdf](https://github.com/simonhaenisch/md-to-pdf)
