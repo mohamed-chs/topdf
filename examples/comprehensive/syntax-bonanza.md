@@ -21,7 +21,7 @@ fn main() {
 
 ## YAML
 ```yaml
-topdf:
+convpdf:
   margin: 10mm
   toc: true
   theme: github

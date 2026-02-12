@@ -1,14 +1,14 @@
 ---
-title: "Topdf Advanced Test"
+title: "convpdf Advanced Test"
 author: "Gemini CLI"
 date: "2026-02-10"
 ---
 
-# Topdf Test Document
+# convpdf Test Document
 
 [TOC]
 
-This is a test document for the `topdf` CLI.
+This is a test document for the `convpdf` CLI.
 
 ## Text Formatting
 

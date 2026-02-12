@@ -1,4 +1,4 @@
-# Working Guidelines: topdf
+# Working Guidelines: convpdf
 
 **IMPORTANT: EXPLORE THE CODEBASE THOROUGHLY AND ANALYZE ALL SYSTEM DEPENDENCIES BEFORE STARTING ANY TASK.**
 
@@ -14,7 +14,7 @@
 - **LEVERAGE ECOSYSTEM**: Use high-quality, reliable external dependencies rather than reinventing the wheel. If a library does it better, **USE IT.**
 
 ## Codebase Overview
-- **`bin/topdf.ts`**: The **CLI ENTRY POINT**. Responsible for command-line argument parsing (Commander), config loading (`.topdfrc*`), deterministic input expansion, output strategy validation, and serialized watch-mode conversion.
+- **`bin/convpdf.ts`**: The **CLI ENTRY POINT**. Responsible for command-line argument parsing (Commander), config loading (`.convpdfrc*`), deterministic input expansion, output strategy validation, and serialized watch-mode conversion.
 - **`src/renderer.ts`**: The **ORCHESTRATOR**. Coordinates markdown parsing, HTML assembly, browser rendering, and PDF generation.
 - **`src/markdown/`**: Markdown pipeline modules:
   - `frontmatter.ts` for frontmatter parsing/validation

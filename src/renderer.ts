@@ -132,7 +132,7 @@ export class Renderer {
     await this.init();
     if (!this.page) throw new Error('Browser page not initialized');
 
-    const tempDir = await mkdtemp(join(tmpdir(), 'topdf-'));
+    const tempDir = await mkdtemp(join(tmpdir(), 'convpdf-'));
     const tempHtmlPath = join(tempDir, 'document.html');
     await writeFile(tempHtmlPath, html, 'utf-8');
 

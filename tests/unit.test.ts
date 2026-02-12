@@ -169,7 +169,7 @@ describe('Renderer', () => {
   });
 
   it('supports custom css and fails clearly when missing', async () => {
-    const dir = await mkdtemp(resolve(tmpdir(), 'topdf-unit-css-'));
+    const dir = await mkdtemp(resolve(tmpdir(), 'convpdf-unit-css-'));
     try {
       const cssPath = resolve(dir, 'custom.css');
       await writeFile(cssPath, 'body { color: rgb(1, 2, 3); }');

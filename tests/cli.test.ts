@@ -5,7 +5,7 @@ import { execFileSync } from 'child_process';
 import { join, resolve } from 'path';
 import { tmpdir } from 'os';
 
-const bin = resolve('dist/bin/topdf.js');
+const bin = resolve('dist/bin/convpdf.js');
 
 const runCli = (args: string[], cwd?: string): string => {
   const output = execFileSync('node', [bin, ...args], {
@@ -36,7 +36,7 @@ describe('CLI', () => {
   });
 
   it('converts a single markdown file to explicit output path', { timeout: 30000 }, async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'topdf-cli-single-'));
+    const dir = await mkdtemp(join(tmpdir(), 'convpdf-cli-single-'));
     try {
       await writeFile(join(dir, 'doc.md'), '# Hello\n\nTest');
       runCli(['doc.md', '-o', 'result.pdf'], dir);
@@ -47,7 +47,7 @@ describe('CLI', () => {
   });
 
   it('converts multiple files from glob into an output directory', { timeout: 60000 }, async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'topdf-cli-glob-'));
+    const dir = await mkdtemp(join(tmpdir(), 'convpdf-cli-glob-'));
     try {
       await writeFile(join(dir, 'a.md'), '# A');
       await writeFile(join(dir, 'b.markdown'), '# B');
@@ -60,11 +60,11 @@ describe('CLI', () => {
   });
 
   it('uses config file with relative custom css path', { timeout: 30000 }, async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'topdf-cli-config-'));
+    const dir = await mkdtemp(join(tmpdir(), 'convpdf-cli-config-'));
     try {
       await writeFile(join(dir, 'doc.md'), '# Config Driven');
       await writeFile(join(dir, 'style.css'), 'h1 { color: red; }');
-      await writeFile(join(dir, '.topdfrc.yaml'), 'css: ./style.css\nmargin: 10mm\ntoc: true\n');
+      await writeFile(join(dir, '.convpdfrc.yaml'), 'css: ./style.css\nmargin: 10mm\ntoc: true\n');
       runCli(['doc.md', '-o', 'doc.pdf'], dir);
       expect(existsSync(join(dir, 'doc.pdf'))).toBe(true);
     } finally {
@@ -73,10 +73,10 @@ describe('CLI', () => {
   });
 
   it('fails on malformed config with actionable error', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'topdf-cli-badcfg-'));
+    const dir = await mkdtemp(join(tmpdir(), 'convpdf-cli-badcfg-'));
     try {
       await writeFile(join(dir, 'doc.md'), '# C');
-      await writeFile(join(dir, '.topdfrc.yaml'), 'margin: [');
+      await writeFile(join(dir, '.convpdfrc.yaml'), 'margin: [');
       const output = runCliExpectFailure(['doc.md'], dir);
       expect(output).toContain('Failed to parse config');
     } finally {
@@ -85,7 +85,7 @@ describe('CLI', () => {
   });
 
   it('fails when single output pdf is used with expandable inputs', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'topdf-cli-output-'));
+    const dir = await mkdtemp(join(tmpdir(), 'convpdf-cli-output-'));
     try {
       await writeFile(join(dir, 'a.md'), '# A');
       await writeFile(join(dir, 'b.md'), '# B');
@@ -97,7 +97,7 @@ describe('CLI', () => {
   });
 
   it('fails on invalid paper format with clear error', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'topdf-cli-format-'));
+    const dir = await mkdtemp(join(tmpdir(), 'convpdf-cli-format-'));
     try {
       await writeFile(join(dir, 'doc.md'), '# Hello');
       const output = runCliExpectFailure(['doc.md', '--format', 'INVALID'], dir);
@@ -108,7 +108,7 @@ describe('CLI', () => {
   });
 
   it('cleans temporary html files after conversion', { timeout: 30000 }, async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'topdf-cli-cleanup-'));
+    const dir = await mkdtemp(join(tmpdir(), 'convpdf-cli-cleanup-'));
     try {
       await writeFile(join(dir, 'doc.md'), '# Image\n\n![x](./pixel.png)');
       const png = Buffer.from(
@@ -119,7 +119,7 @@ describe('CLI', () => {
       runCli(['doc.md', '-o', 'doc.pdf'], dir);
 
       const files = await readdir(dir);
-      expect(files.some((entry) => entry.startsWith('.topdf-tmp-'))).toBe(false);
+      expect(files.some((entry) => entry.startsWith('.convpdf-tmp-'))).toBe(false);
       expect(existsSync(join(dir, 'doc.pdf'))).toBe(true);
     } finally {
       await rm(dir, { recursive: true, force: true });
@@ -132,7 +132,7 @@ describe('CLI', () => {
   });
 
   it('supports custom templates', { timeout: 30000 }, async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'topdf-cli-template-'));
+    const dir = await mkdtemp(join(tmpdir(), 'convpdf-cli-template-'));
     try {
       await writeFile(join(dir, 'doc.md'), '# Title');
       await writeFile(
@@ -147,7 +147,7 @@ describe('CLI', () => {
   });
 
   it('honors toc depth validation', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'topdf-cli-tocdepth-'));
+    const dir = await mkdtemp(join(tmpdir(), 'convpdf-cli-tocdepth-'));
     try {
       await writeFile(join(dir, 'doc.md'), '# A\n## B');
       const output = runCliExpectFailure(['doc.md', '--toc-depth', '0'], dir);
@@ -158,7 +158,7 @@ describe('CLI', () => {
   });
 
   it('reads custom header and footer templates', { timeout: 30000 }, async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'topdf-cli-header-footer-'));
+    const dir = await mkdtemp(join(tmpdir(), 'convpdf-cli-header-footer-'));
     try {
       await writeFile(join(dir, 'doc.md'), '# Doc');
       await writeFile(join(dir, 'header.html'), '<div style="font-size:8px">H</div>');
@@ -177,7 +177,7 @@ describe('CLI', () => {
   });
 
   it('writes output next to markdown by default', { timeout: 30000 }, async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'topdf-cli-default-output-'));
+    const dir = await mkdtemp(join(tmpdir(), 'convpdf-cli-default-output-'));
     try {
       await writeFile(join(dir, 'doc.md'), '# Local Output');
       runCli(['doc.md'], dir);

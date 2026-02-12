@@ -4,14 +4,14 @@ title: Headers and Footers Demo
 
 # Headers and Footers
 
-This document demonstrates the use of custom headers and footers in `topdf`.
+This document demonstrates the use of custom headers and footers in `convpdf`.
 
 ## Usage
 
 You can provide custom HTML templates for headers and footers using the `--header` and `--footer` flags.
 
 ```bash
-topdf demo.md --header header.html --footer footer.html
+convpdf demo.md --header header.html --footer footer.html
 ```
 
 ## Puppeteer Variables

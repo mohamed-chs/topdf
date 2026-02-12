@@ -79,7 +79,7 @@ const parseInteger = (value: string): number => {
 };
 
 const loadConfig = async (): Promise<LoadedConfig> => {
-  const candidates = ['.topdfrc', '.topdfrc.json', '.topdfrc.yaml', '.topdfrc.yml'];
+  const candidates = ['.convpdfrc', '.convpdfrc.json', '.convpdfrc.yaml', '.convpdfrc.yml'];
   for (const candidate of candidates) {
     const configPath = resolve(candidate);
     try {
@@ -221,7 +221,7 @@ class ConversionQueue {
 }
 
 program
-  .name('topdf')
+  .name('convpdf')
   .description('Convert Markdown to high-quality PDF.')
   .version(pkg.version)
   .argument('<inputs...>', 'Input markdown files or glob patterns')

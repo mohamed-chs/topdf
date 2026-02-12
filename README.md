@@ -1,4 +1,4 @@
-# topdf
+# convpdf
 
 Convert Markdown to high-quality PDF using Node.js, Marked, and Puppeteer.
 
@@ -15,16 +15,16 @@ Convert Markdown to high-quality PDF using Node.js, Marked, and Puppeteer.
 
 ```bash
 # Basic conversion
-topdf input.md
+convpdf input.md
 
 # Multiple files with custom output directory
-topdf "docs/*.md" -o results/
+convpdf "docs/*.md" -o results/
 
 # Custom styles and TOC
-topdf input.md --css styles.css --toc
+convpdf input.md --css styles.css --toc
 
 # Watch mode
-topdf "docs/**/*.md" --watch -o pdf/
+convpdf "docs/**/*.md" --watch -o pdf/
 ```
 
 ## Options
@@ -43,7 +43,7 @@ topdf "docs/**/*.md" --watch -o pdf/
 
 ## Configuration
 
-Supports `.topdfrc`, `.topdfrc.json`, `.topdfrc.yaml`, and `.topdfrc.yml`.
+Supports `.convpdfrc`, `.convpdfrc.json`, `.convpdfrc.yaml`, and `.convpdfrc.yml`.
 
 Example:
 
