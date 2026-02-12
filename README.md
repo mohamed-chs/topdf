@@ -96,24 +96,6 @@ npm test
 npm run dev -- input.md
 ```
 
-## Release
-
-### Local
-
-```bash
-# Validate package + publish simulation
-npm run release:dry-run
-
-# Actual release (bumps version, runs quality gate, publishes to npm)
-npm run release -- patch
-```
-
-### GitHub Actions
-
-- `CI` workflow runs on pushes and pull requests to `main`.
-- `Release` workflow runs when a GitHub release is published, or manually via workflow dispatch.
-- The release workflow requires `NPM_TOKEN` in repository secrets.
-
 ---
 
 > Inspired by [simonhaenisch/md-to-pdf](https://github.com/simonhaenisch/md-to-pdf)
