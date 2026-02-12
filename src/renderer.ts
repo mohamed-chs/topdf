@@ -215,18 +215,6 @@ export class Renderer {
       marked.walkTokens(tokens as unknown as Token[], marked.defaults.walkTokens);
     }
 
-    // Populate IDs for TOC (walkTokens above handles the extension hooks,
-    // but the manual walk here serves as a fallback for any heading without an id)
-    const walk = (items: CustomToken[]) => {
-      for (const t of items) {
-        if (t.type === 'heading' && !t.id && t.text) {
-          t.id = slugger.slug(t.text.replace(/<.*?>/g, '').replace(/\[([^\]]+)\]\([^\)]+\)/g, '$1'));
-        }
-        if (t.tokens) walk(t.tokens);
-      }
-    };
-    walk(tokens);
-
     // Move footnotes to the end
     const footnoteIndex = tokens.findIndex(t => t.type === 'footnotes');
     if (footnoteIndex !== -1) {

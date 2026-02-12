@@ -11,7 +11,20 @@ import { Renderer } from '../src/renderer.js';
 import type { RendererOptions } from '../src/types.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const pkg = JSON.parse(await readFile(join(__dirname, '..', 'package.json'), 'utf-8')) as { version: string };
+
+// Walk up from __dirname to find package.json (works from both source `bin/` and compiled `dist/bin/`)
+const findPackageJson = async (dir: string): Promise<string> => {
+  const candidate = join(dir, 'package.json');
+  try {
+    await stat(candidate);
+    return candidate;
+  } catch {
+    const parent = dirname(dir);
+    if (parent === dir) throw new Error('package.json not found');
+    return findPackageJson(parent);
+  }
+};
+const pkg = JSON.parse(await readFile(await findPackageJson(__dirname), 'utf-8')) as { version: string };
 
 interface CliOptions {
   output?: string;
