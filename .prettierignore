@@ -1,0 +1,8 @@
+dist
+coverage
+node_modules
+package-lock.json
+AGENTS.md
+examples
+tests/fixtures
+src/styles

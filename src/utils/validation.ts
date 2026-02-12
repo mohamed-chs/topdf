@@ -2,18 +2,24 @@ import type { PDFMargin } from 'puppeteer';
 import { PAPER_FORMATS, type PaperFormat } from '../types.js';
 
 const VALID_MARGIN = /^\d*\.?\d+(px|in|cm|mm|pc|pt)?$/i;
-const FORMAT_LOOKUP: ReadonlyMap<string, PaperFormat> = new Map(PAPER_FORMATS.map((value) => [value.toLowerCase(), value]));
+const FORMAT_LOOKUP: ReadonlyMap<string, PaperFormat> = new Map(
+  PAPER_FORMATS.map((value) => [value.toLowerCase(), value])
+);
 
 export const parseMargin = (rawMargin?: string): PDFMargin => {
   const margin = rawMargin?.trim() || '20mm';
   const parts = margin.split(/\s+/).filter(Boolean);
 
   if (parts.length < 1 || parts.length > 4) {
-    throw new Error(`Invalid margin value "${rawMargin}". Use 1 to 4 CSS length values, e.g. "20mm" or "10mm 12mm".`);
+    throw new Error(
+      `Invalid margin value "${rawMargin}". Use 1 to 4 CSS length values, e.g. "20mm" or "10mm 12mm".`
+    );
   }
   for (const part of parts) {
     if (!VALID_MARGIN.test(part)) {
-      throw new Error(`Invalid margin token "${part}". Expected numeric value with optional unit (mm, cm, in, px, pt, pc).`);
+      throw new Error(
+        `Invalid margin token "${part}". Expected numeric value with optional unit (mm, cm, in, px, pt, pc).`
+      );
     }
   }
 
@@ -40,7 +46,9 @@ export const normalizePaperFormat = (input?: string): PaperFormat => {
   const value = input?.trim() || 'A4';
   const normalized = FORMAT_LOOKUP.get(value.toLowerCase());
   if (!normalized) {
-    throw new Error(`Invalid paper format "${value}". Allowed formats: ${PAPER_FORMATS.join(', ')}.`);
+    throw new Error(
+      `Invalid paper format "${value}". Allowed formats: ${PAPER_FORMATS.join(', ')}.`
+    );
   }
   return normalized;
 };

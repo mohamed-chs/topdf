@@ -14,12 +14,24 @@
 - **LEVERAGE ECOSYSTEM**: Use high-quality, reliable external dependencies rather than reinventing the wheel. If a library does it better, **USE IT.**
 
 ## Codebase Overview
-- **`bin/topdf.ts`**: The **CLI ENTRY POINT**. Responsible for command-line argument parsing (Commander), configuration loading (`.topdfrc`), glob pattern expansion, file system orchestration, and the live watch mode (Chokidar).
-- **`src/renderer.ts`**: The **CORE ENGINE**. Manages the lifecycle of the Puppeteer browser, frontmatter extraction (YAML), Markdown lexing and parsing (Marked), Table of Contents (TOC) generation, and HTML/PDF assembly.
+- **`bin/topdf.ts`**: The **CLI ENTRY POINT**. Responsible for command-line argument parsing (Commander), config loading (`.topdfrc*`), deterministic input expansion, output strategy validation, and serialized watch-mode conversion.
+- **`src/renderer.ts`**: The **ORCHESTRATOR**. Coordinates markdown parsing, HTML assembly, browser rendering, and PDF generation.
+- **`src/markdown/`**: Markdown pipeline modules:
+  - `frontmatter.ts` for frontmatter parsing/validation
+  - `math.ts` for math protection/detection
+  - `marked.ts` for Marked setup/extensions/safe links
+  - `toc.ts` for TOC generation
+- **`src/html/template.ts`**: HTML document assembly with safe token replacement and optional MathJax injection.
+- **`src/utils/`**: Shared helpers:
+  - `html.ts` for escaping/sanitization
+  - `validation.ts` for margin/format/toc-depth validation
 - **`src/types.ts`**: The **TYPE DEFINITIONS**. Contains interfaces and types used throughout the project to ensure strict type safety.
 - **`src/styles/`**: Contains the **DESIGN DNA**. `default.css` provides the professional document layout, and `github.css` handles syntax highlighting themes.
 - **`tests/`**: The **QUALITY GATE**. Consolidated into `unit.test.ts` (logic/parsing) and `cli.test.ts` (integration/E2E).
 - **`examples/`**: Real-world scenarios, edge cases, and feature demonstrations used for **BOTH DOCUMENTATION AND FIDELITY TESTING.**
+- **`.github/workflows/`**: CI/CD automation:
+  - `ci.yml` runs quality checks on PR/push
+  - `release.yml` verifies and publishes npm releases
 
 ## 🚀 Agent Protocol
 
@@ -29,7 +41,7 @@
 ### 2. Operational Rigor
 - **CRITICAL MINDSET**: Do not assume the codebase is perfect. Be alert for missing logic, edge cases, or features that appear complete but are fragile.
 - **COHESION PASS**: After any change, perform a targeted sanity sweep to ensure the new behavior is **fully wired** across configs, CLI options, defaults, tests, and documentation.
-- **VERIFICATION**: Always run the full quality gate (`npm run build && npm test`) and fix all issues—including linting or type errors—before considering a task finished.
+- **VERIFICATION**: Always run the full quality gate (`npm run ci`) and fix all issues—including linting, formatting, type errors, and tests—before considering a task finished.
 - **SYSTEM INTEGRITY**: Any change that introduces new build artifacts, temporary directories, or runtime dependencies **MUST** be reflected in `.gitignore` and documented in `README.md`.
 
 ### 3. Communication & UX
@@ -42,7 +54,7 @@
     - **UNIT TESTS**: Verify individual functions (Frontmatter, TOC, HTML assembly).
     - **INTEGRATION TESTS**: Verify the interaction between the Renderer and the file system/Puppeteer.
     - **END-TO-END (E2E) TESTS**: Verify the **FULL CLI FLOW** from Markdown input to PDF output. Tests run against the compiled `dist/` output for E2E and source for units.
-- **REGRESSION TESTING**: **ALWAYS RUN `npm test`** before any modification to establish a baseline and after to ensure **NO BREAKS.**
+- **REGRESSION TESTING**: Run `npm run build && npm test` before/after substantial behavior changes.
 
 ## Coding Standards
 - **TYPESCRIPT & ESM**: Strict adherence to **TYPESCRIPT** and **ES MODULES.**

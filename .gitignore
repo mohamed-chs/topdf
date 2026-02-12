@@ -7,3 +7,5 @@ dist
 tests/output*/
 .topdf-tmp-*
 results/
+coverage
+*.tsbuildinfo

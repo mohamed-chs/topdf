@@ -29,7 +29,10 @@ export class Renderer {
 
   async init(): Promise<void> {
     if (!this.browser) {
-      this.browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] });
+      this.browser = await puppeteer.launch({
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
+      });
       this.page = await this.browser.newPage();
     }
   }
@@ -69,10 +72,10 @@ export class Renderer {
     const tokens = marked.lexer(safeContent) as unknown as CustomToken[];
 
     if (marked.defaults.walkTokens) {
-      marked.walkTokens(tokens as unknown as Token[], marked.defaults.walkTokens);
+      void marked.walkTokens(tokens as unknown as Token[], marked.defaults.walkTokens);
     }
 
-    const footnoteIndex = tokens.findIndex(t => t.type === 'footnotes');
+    const footnoteIndex = tokens.findIndex((t) => t.type === 'footnotes');
     if (footnoteIndex !== -1) {
       const [footnoteToken] = tokens.splice(footnoteIndex, 1);
       if (footnoteToken) tokens.push(footnoteToken);
@@ -81,10 +84,10 @@ export class Renderer {
     const tocDepth = normalizeTocDepth(
       typeof data.tocDepth === 'number' ? data.tocDepth : opts.tocDepth
     );
-    const hasTocPlaceholder = tokens.some(t => t.type === 'tocPlaceholder');
+    const hasTocPlaceholder = tokens.some((t) => t.type === 'tocPlaceholder');
     const frontmatterToc = typeof data.toc === 'boolean' ? data.toc : undefined;
     const tocEnabled = opts.toc ?? frontmatterToc ?? false;
-    const tocHtml = (tocEnabled || hasTocPlaceholder) ? this.generateToc(tokens, tocDepth) : '';
+    const tocHtml = tocEnabled || hasTocPlaceholder ? this.generateToc(tokens, tocDepth) : '';
     let html = restoreMath(marked.parser(tokens as unknown as Token[]));
 
     if (tocHtml) {
@@ -119,7 +122,11 @@ export class Renderer {
     });
   }
 
-  async generatePdf(md: string, outputPath: string, overrides: RendererOptions = {}): Promise<void> {
+  async generatePdf(
+    md: string,
+    outputPath: string,
+    overrides: RendererOptions = {}
+  ): Promise<void> {
     const opts = { ...this.options, ...overrides };
     const html = await this.renderHtml(md, opts);
     await this.init();
@@ -132,17 +139,34 @@ export class Renderer {
     try {
       await this.page.emulateMediaType('print');
 
-      await this.page.goto(pathToFileURL(tempHtmlPath).href, { waitUntil: 'networkidle0', timeout: 60000 });
+      await this.page.goto(pathToFileURL(tempHtmlPath).href, {
+        waitUntil: 'networkidle0',
+        timeout: 60000
+      });
       await this.page.evaluate(async () => {
         const images = Array.from(document.querySelectorAll('img'));
-        await Promise.all(images.map((img) => {
-          if (img.complete) return Promise.resolve();
-          return new Promise<void>((resolve) => {
-            img.addEventListener('load', () => resolve(), { once: true });
-            img.addEventListener('error', () => resolve(), { once: true });
-            setTimeout(resolve, 5000); // Max 5s per image
-          });
-        }));
+        await Promise.all(
+          images.map((img) => {
+            if (img.complete) return Promise.resolve();
+            return new Promise<void>((resolve) => {
+              img.addEventListener(
+                'load',
+                () => {
+                  resolve();
+                },
+                { once: true }
+              );
+              img.addEventListener(
+                'error',
+                () => {
+                  resolve();
+                },
+                { once: true }
+              );
+              setTimeout(resolve, 5000); // Max 5s per image
+            });
+          })
+        );
 
         const win = window as Window & {
           MathJax?: {
@@ -170,7 +194,9 @@ export class Renderer {
       });
 
       const margin = parseMargin(opts.margin);
-      const format = normalizePaperFormat(typeof opts.format === 'string' ? opts.format : undefined);
+      const format = normalizePaperFormat(
+        typeof opts.format === 'string' ? opts.format : undefined
+      );
       await this.page.pdf({
         path: outputPath,
         format,
@@ -178,7 +204,9 @@ export class Renderer {
         margin,
         displayHeaderFooter: !!(opts.headerTemplate || opts.footerTemplate),
         headerTemplate: opts.headerTemplate || '<span></span>',
-        footerTemplate: opts.footerTemplate || '<div style="font-size: 10px; width: 100%; text-align: center; color: #666;"><span class="pageNumber"></span> / <span class="totalPages"></span></div>'
+        footerTemplate:
+          opts.footerTemplate ||
+          '<div style="font-size: 10px; width: 100%; text-align: center; color: #666;"><span class="pageNumber"></span> / <span class="totalPages"></span></div>'
       });
     } catch (e: unknown) {
       if (e instanceof Error && e.message.includes('Session closed')) {
@@ -186,8 +214,8 @@ export class Renderer {
       }
       throw e;
     } finally {
-      await unlink(tempHtmlPath).catch(() => { });
-      await rm(tempDir, { recursive: true, force: true }).catch(() => { });
+      await unlink(tempHtmlPath).catch(() => {});
+      await rm(tempDir, { recursive: true, force: true }).catch(() => {});
     }
   }
 }

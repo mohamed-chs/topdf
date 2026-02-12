@@ -24,7 +24,9 @@ const findPackageJson = async (dir: string): Promise<string> => {
     return findPackageJson(parent);
   }
 };
-const pkg = JSON.parse(await readFile(await findPackageJson(__dirname), 'utf-8')) as { version: string };
+const pkg = JSON.parse(await readFile(await findPackageJson(__dirname), 'utf-8')) as {
+  version: string;
+};
 
 interface CliOptions {
   output?: string;
@@ -32,7 +34,7 @@ interface CliOptions {
   css?: string;
   template?: string;
   margin?: string;
-  format?: string;
+  format?: RendererOptions['format'];
   header?: string;
   footer?: string;
   toc?: boolean;
@@ -106,58 +108,71 @@ const loadConfig = async (): Promise<LoadedConfig> => {
   return { values: {}, sourcePath: null };
 };
 
-const describeInputs = async (inputs: string[]): Promise<InputDescriptor[]> => Promise.all(inputs.map(async (raw) => {
-  const absolute = resolve(raw);
-  try {
-    const stats = await stat(absolute);
-    return {
-      raw,
-      absolute,
-      hasGlobMagic: hasGlobMagic(raw),
-      isDirectory: stats.isDirectory()
-    };
-  } catch {
-    return {
-      raw,
-      absolute,
-      hasGlobMagic: hasGlobMagic(raw),
-      isDirectory: false
-    };
-  }
-}));
+const describeInputs = async (inputs: string[]): Promise<InputDescriptor[]> =>
+  Promise.all(
+    inputs.map(async (raw) => {
+      const absolute = resolve(raw);
+      try {
+        const stats = await stat(absolute);
+        return {
+          raw,
+          absolute,
+          hasGlobMagic: hasGlobMagic(raw),
+          isDirectory: stats.isDirectory()
+        };
+      } catch {
+        return {
+          raw,
+          absolute,
+          hasGlobMagic: hasGlobMagic(raw),
+          isDirectory: false
+        };
+      }
+    })
+  );
 
 const resolveMarkdownFiles = async (inputs: InputDescriptor[]): Promise<string[]> => {
-  const matches = await Promise.all(inputs.map(async (input) => {
-    try {
-      const stats = await stat(input.absolute);
-      if (stats.isFile()) return [input.absolute];
-      if (stats.isDirectory()) {
-        return glob('**/*.{md,markdown}', {
-          cwd: input.absolute,
-          nodir: true,
-          absolute: true
-        });
+  const matches = await Promise.all(
+    inputs.map(async (input) => {
+      try {
+        const stats = await stat(input.absolute);
+        if (stats.isFile()) return [input.absolute];
+        if (stats.isDirectory()) {
+          return glob('**/*.{md,markdown}', {
+            cwd: input.absolute,
+            nodir: true,
+            absolute: true
+          });
+        }
+      } catch {
+        // If the direct path doesn't exist, treat it as a glob expression.
       }
-    } catch {
-      // If the direct path doesn't exist, treat it as a glob expression.
-    }
 
-    return glob(input.raw, { nodir: true, absolute: true });
-  }));
+      return glob(input.raw, { nodir: true, absolute: true });
+    })
+  );
 
-  return [...new Set(matches.flat().filter((value) => /\.(md|markdown)$/i.test(value)))].sort((a, b) => a.localeCompare(b));
+  return [...new Set(matches.flat().filter((value) => /\.(md|markdown)$/i.test(value)))].sort(
+    (a, b) => a.localeCompare(b)
+  );
 };
 
-const resolveOutputStrategy = (outputPath: string | undefined, inputs: InputDescriptor[]): OutputStrategy => {
+const resolveOutputStrategy = (
+  outputPath: string | undefined,
+  inputs: InputDescriptor[]
+): OutputStrategy => {
   if (!outputPath) return { mode: 'adjacent', targetPath: null };
   const absolute = resolve(outputPath);
   if (!absolute.toLowerCase().endsWith('.pdf')) {
     return { mode: 'directory', targetPath: absolute };
   }
 
-  const maybeMultiple = inputs.length > 1 || inputs.some((input) => input.isDirectory || input.hasGlobMagic);
+  const maybeMultiple =
+    inputs.length > 1 || inputs.some((input) => input.isDirectory || input.hasGlobMagic);
   if (maybeMultiple) {
-    throw new Error('Output path cannot be a single .pdf file when inputs can expand to multiple markdown files.');
+    throw new Error(
+      'Output path cannot be a single .pdf file when inputs can expand to multiple markdown files.'
+    );
   }
 
   return { mode: 'single-file', targetPath: absolute };
@@ -224,7 +239,7 @@ program
   .action(async (inputs: string[], options: CliOptions) => {
     let watcher: FSWatcher | null = null;
     const cleanup = async (): Promise<void> => {
-      if (watcher) await watcher.close().catch(() => { });
+      if (watcher) await watcher.close().catch(() => {});
     };
 
     try {
@@ -246,9 +261,13 @@ program
       }
 
       const firstInput = describedInputs[0];
-      const singleInput = describedInputs.length === 1 && firstInput && !firstInput.isDirectory && !firstInput.hasGlobMagic
-        ? firstInput.absolute
-        : null;
+      const singleInput =
+        describedInputs.length === 1 &&
+        firstInput &&
+        !firstInput.isDirectory &&
+        !firstInput.hasGlobMagic
+          ? firstInput.absolute
+          : null;
 
       const renderer = new Renderer({
         customCss: opts.css ? resolve(opts.css) : null,
@@ -272,13 +291,19 @@ program
           if (!inputStat.isFile()) return;
 
           if (outputStrategy.mode === 'single-file' && singleInput && inputPath !== singleInput) {
-            console.log(chalk.yellow(`Skipping ${inputPath}: output is configured as a single PDF file for ${singleInput}.`));
+            console.log(
+              chalk.yellow(
+                `Skipping ${inputPath}: output is configured as a single PDF file for ${singleInput}.`
+              )
+            );
             return;
           }
 
           const outputPath = toOutputPath(inputPath, outputStrategy);
           await mkdir(dirname(outputPath), { recursive: true });
-          console.log(chalk.blue(`Converting ${chalk.bold(inputPath)} -> ${chalk.bold(outputPath)}...`));
+          console.log(
+            chalk.blue(`Converting ${chalk.bold(inputPath)} -> ${chalk.bold(outputPath)}...`)
+          );
           const markdown = await readFile(inputPath, 'utf-8');
           await renderer.generatePdf(markdown, outputPath, { basePath: dirname(inputPath) });
           console.log(chalk.green(`Done: ${basename(outputPath)}`));
@@ -300,17 +325,29 @@ program
         await renderer.close();
         process.exit(0);
       };
-      process.on('SIGINT', onSignal);
-      process.on('SIGTERM', onSignal);
+      process.on('SIGINT', () => {
+        void onSignal();
+      });
+      process.on('SIGTERM', () => {
+        void onSignal();
+      });
 
       if (opts.watch) {
         console.log(chalk.yellow('\nWatching for changes... (Press Ctrl+C to stop)'));
         const queue = new ConversionQueue();
-        watcher = chokidar.watch(inputs, { ignored: /(^|[\/\\])\../, persistent: true, ignoreInitial: true });
+        watcher = chokidar.watch(inputs, {
+          ignored: /(^|[\/\\])\../,
+          persistent: true,
+          ignoreInitial: true
+        });
         watcher.on('all', (event: string, changedPath: string) => {
           if (!['add', 'change'].includes(event) || !/\.(md|markdown)$/i.test(changedPath)) return;
           const absoluteChangedPath = resolve(changedPath);
-          console.log(chalk.cyan(`\n${event === 'add' ? 'New file' : 'Change'} detected: ${absoluteChangedPath}`));
+          console.log(
+            chalk.cyan(
+              `\n${event === 'add' ? 'New file' : 'Change'} detected: ${absoluteChangedPath}`
+            )
+          );
           queue.enqueue(absoluteChangedPath, convert);
         });
       } else {

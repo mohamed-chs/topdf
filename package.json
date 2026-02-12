@@ -34,8 +34,21 @@
   },
   "homepage": "https://github.com/mohamed-chs/topdf#readme",
   "scripts": {
-    "build": "tsc && mkdir -p dist/src/styles && cp src/styles/*.css dist/src/styles/",
+    "clean": "node scripts/clean.mjs",
+    "typecheck": "tsc -p tsconfig.json",
+    "build": "npm run clean && tsc -p tsconfig.build.json && node scripts/copy-styles.mjs",
     "test": "vitest run",
+    "test:unit": "vitest run tests/unit.test.ts",
+    "test:cli": "vitest run tests/cli.test.ts",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "ci": "npm run typecheck && npm run lint && npm run format:check && npm run build && npm test",
+    "release": "bash scripts/release.sh",
+    "release:dry-run": "bash scripts/release-dry-run.sh",
+    "prepublishOnly": "npm run ci",
     "dev": "tsx bin/topdf.ts"
   },
   "dependencies": {
@@ -53,10 +66,17 @@
     "puppeteer": "^24.37.2"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.2",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^25.2.3",
+    "@vitest/coverage-v8": "^4.0.18",
+    "eslint": "^9.39.2",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^17.3.0",
+    "prettier": "^3.8.1",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
+    "typescript-eslint": "^8.55.0",
     "vitest": "^4.0.18"
   }
 }

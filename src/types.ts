@@ -15,10 +15,11 @@ export const PAPER_FORMATS = [
 ] as const;
 
 export type PaperFormat = (typeof PAPER_FORMATS)[number];
+export type PaperFormatInput = PaperFormat | Lowercase<PaperFormat>;
 
 export interface RendererOptions {
   margin?: string;
-  format?: PaperFormat | string;
+  format?: PaperFormatInput;
   toc?: boolean;
   tocDepth?: number;
   math?: boolean;

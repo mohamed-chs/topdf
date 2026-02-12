@@ -11,7 +11,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 describe('Renderer', () => {
   let r: Renderer;
-  beforeEach(() => { r = new Renderer(); });
+  beforeEach(() => {
+    r = new Renderer();
+  });
 
   it('parses frontmatter', () => {
     const { data, content } = r.parseFrontmatter('---\nt: H\n---\n# W');
@@ -75,7 +77,9 @@ describe('Renderer', () => {
   });
 
   it('uses custom template', async () => {
-    const html = await new Renderer({ template: resolve(__dirname, 'fixtures/template.html') }).renderHtml('# HT');
+    const html = await new Renderer({
+      template: resolve(__dirname, 'fixtures/template.html')
+    }).renderHtml('# HT');
     expect(html).toContain('Markdown Document - <h1 id="ht">HT</h1>');
   });
 
@@ -86,7 +90,9 @@ describe('Renderer', () => {
   });
 
   it('injects base tag', async () => {
-    expect(await new Renderer({ basePath: '/p' }).renderHtml('# H')).toContain('<base href="file:///p/">');
+    expect(await new Renderer({ basePath: '/p' }).renderHtml('# H')).toContain(
+      '<base href="file:///p/">'
+    );
   });
 
   it('handles malformed frontmatter', async () => {
@@ -170,9 +176,9 @@ describe('Renderer', () => {
       const html = await new Renderer({ customCss: cssPath }).renderHtml('# H');
       expect(html).toContain('rgb(1, 2, 3)');
 
-      await expect(new Renderer({ customCss: resolve(dir, 'missing.css') }).renderHtml('# H')).rejects.toThrow(
-        'Failed to read custom CSS'
-      );
+      await expect(
+        new Renderer({ customCss: resolve(dir, 'missing.css') }).renderHtml('# H')
+      ).rejects.toThrow('Failed to read custom CSS');
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

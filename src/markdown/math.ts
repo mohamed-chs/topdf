@@ -10,11 +10,12 @@ const replaceWithPlaceholders = (
   pattern: RegExp,
   keyPrefix: string,
   store: Map<string, string>
-): string => input.replace(pattern, (match) => {
-  const id = `${keyPrefix}_${randomBytes(6).toString('hex')}`;
-  store.set(id, match);
-  return id;
-});
+): string =>
+  input.replace(pattern, (match) => {
+    const id = `${keyPrefix}_${randomBytes(6).toString('hex')}`;
+    store.set(id, match);
+    return id;
+  });
 
 export const protectMath = (content: string): MathProtectionResult => {
   const codeGuards = new Map<string, string>();
@@ -32,14 +33,29 @@ export const protectMath = (content: string): MathProtectionResult => {
   text = replaceWithPlaceholders(text, /(`+)([^`\n]|`(?!\1))+?\1/g, 'CODE_SPAN', codeGuards);
 
   // Display math blocks.
-  text = replaceWithPlaceholders(text, /^\$\$[ \t]*\n[\s\S]*?\n\$\$[ \t]*$/gm, 'MATH_BLOCK', mathGuards);
-  text = replaceWithPlaceholders(text, /^\\\[[ \t]*\n[\s\S]*?\n\\\][ \t]*$/gm, 'MATH_BLOCK', mathGuards);
+  text = replaceWithPlaceholders(
+    text,
+    /^\$\$[ \t]*\n[\s\S]*?\n\$\$[ \t]*$/gm,
+    'MATH_BLOCK',
+    mathGuards
+  );
+  text = replaceWithPlaceholders(
+    text,
+    /^\\\[[ \t]*\n[\s\S]*?\n\\\][ \t]*$/gm,
+    'MATH_BLOCK',
+    mathGuards
+  );
   text = replaceWithPlaceholders(text, /\$\$[^\n]+?\$\$/g, 'MATH_INLINE', mathGuards);
   text = replaceWithPlaceholders(text, /\\\[[^\n]*?\\\]/g, 'MATH_INLINE', mathGuards);
 
   // Inline math.
   text = replaceWithPlaceholders(text, /\\\([^\n]*?\\\)/g, 'MATH_INLINE', mathGuards);
-  text = replaceWithPlaceholders(text, /(?<!\\)\$(?!\s)([^\n$]|\\\$)+?(?<!\s)(?<!\\)\$/g, 'MATH_INLINE', mathGuards);
+  text = replaceWithPlaceholders(
+    text,
+    /(?<!\\)\$(?!\s)([^\n$]|\\\$)+?(?<!\s)(?<!\\)\$/g,
+    'MATH_INLINE',
+    mathGuards
+  );
 
   // Restore code guards before lexing markdown.
   for (const [id, code] of codeGuards) {
@@ -63,5 +79,7 @@ export const hasMathSyntax = (content: string): boolean => {
     .replace(/`[^`\n]*`/g, '')
     .replace(/\[([^\]]*)\]\([^\)]+\)/g, '$1');
 
-  return /(?<!\\)\$[^$\n]+\$|(?<!\\)\$\$[\s\S]+?\$\$|\\\([^\n]+?\\\)|\\\[[\s\S]+?\\\]/.test(sanitized);
+  return /(?<!\\)\$[^$\n]+\$|(?<!\\)\$\$[\s\S]+?\$\$|\\\([^\n]+?\\\)|\\\[[\s\S]+?\\\]/.test(
+    sanitized
+  );
 };

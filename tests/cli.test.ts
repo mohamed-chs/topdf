@@ -135,7 +135,10 @@ describe('CLI', () => {
     const dir = await mkdtemp(join(tmpdir(), 'topdf-cli-template-'));
     try {
       await writeFile(join(dir, 'doc.md'), '# Title');
-      await writeFile(join(dir, 'template.html'), '<!DOCTYPE html><html><head><title>{{title}}</title></head><body>{{content}}</body></html>');
+      await writeFile(
+        join(dir, 'template.html'),
+        '<!DOCTYPE html><html><head><title>{{title}}</title></head><body>{{content}}</body></html>'
+      );
       runCli(['doc.md', '--template', 'template.html', '-o', 'doc.pdf'], dir);
       expect(existsSync(join(dir, 'doc.pdf'))).toBe(true);
     } finally {
@@ -159,8 +162,14 @@ describe('CLI', () => {
     try {
       await writeFile(join(dir, 'doc.md'), '# Doc');
       await writeFile(join(dir, 'header.html'), '<div style="font-size:8px">H</div>');
-      await writeFile(join(dir, 'footer.html'), '<div style="font-size:8px"><span class="pageNumber"></span></div>');
-      runCli(['doc.md', '--header', 'header.html', '--footer', 'footer.html', '-o', 'doc.pdf'], dir);
+      await writeFile(
+        join(dir, 'footer.html'),
+        '<div style="font-size:8px"><span class="pageNumber"></span></div>'
+      );
+      runCli(
+        ['doc.md', '--header', 'header.html', '--footer', 'footer.html', '-o', 'doc.pdf'],
+        dir
+      );
       expect(existsSync(join(dir, 'doc.pdf'))).toBe(true);
     } finally {
       await rm(dir, { recursive: true, force: true });

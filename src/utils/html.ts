@@ -6,7 +6,8 @@ const HTML_ESCAPE_MAP: Record<string, string> = {
   "'": '&#39;'
 };
 
-export const escapeHtml = (value: string): string => value.replace(/[&<>"']/g, (char) => HTML_ESCAPE_MAP[char] ?? char);
+export const escapeHtml = (value: string): string =>
+  value.replace(/[&<>"']/g, (char) => HTML_ESCAPE_MAP[char] ?? char);
 
 export const sanitizeHref = (href: string): string => {
   const trimmed = href.trim();

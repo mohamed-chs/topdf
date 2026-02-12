@@ -1,15 +1,17 @@
 import { Marked } from 'marked';
-import type { Token, Tokens } from 'marked';
+import type { Token } from 'marked';
+import type { Tokens } from 'marked';
 import { markedHighlight } from 'marked-highlight';
 import { gfmHeadingId } from 'marked-gfm-heading-id';
 import footnote from 'marked-footnote';
 import hljs from 'highlight.js';
-import GithubSlugger from 'github-slugger';
+import type GithubSlugger from 'github-slugger';
 import { escapeHtml, sanitizeHref } from '../utils/html.js';
 import type { CustomToken } from '../types.js';
 
 const stripHtml = (value: string): string => value.replace(/<[^>]+>/g, '').trim();
-const stripMarkdownLinks = (value: string): string => value.replace(/\[([^\]]+)\]\([^\)]+\)/g, '$1');
+const stripMarkdownLinks = (value: string): string =>
+  value.replace(/\[([^\]]+)\]\([^\)]+\)/g, '$1');
 
 export const createMarkedInstance = (slugger: GithubSlugger): Marked => {
   const marked = new Marked()
@@ -72,7 +74,8 @@ export const createMarkedInstance = (slugger: GithubSlugger): Marked => {
           if (!href) return text;
 
           const external = /^(?:[a-z][a-z\d+\-.]*:)?\/\//i.test(href);
-          const rewrittenHref = !external && href.toLowerCase().endsWith('.md') ? href.replace(/\.md$/i, '.pdf') : href;
+          const rewrittenHref =
+            !external && href.toLowerCase().endsWith('.md') ? href.replace(/\.md$/i, '.pdf') : href;
           const safeHref = sanitizeHref(rewrittenHref);
 
           let output = `<a href="${escapeHtml(safeHref)}"`;

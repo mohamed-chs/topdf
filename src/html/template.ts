@@ -50,11 +50,14 @@ const loadTemplate = async (templatePath?: string | null): Promise<string> => {
   }
 };
 
-const replaceToken = (template: string, token: string, value: string): string => template.split(`{{${token}}}`).join(value);
+const replaceToken = (template: string, token: string, value: string): string =>
+  template.split(`{{${token}}}`).join(value);
 
 export const renderTemplate = async (input: HtmlTemplateInput): Promise<string> => {
   const template = await loadTemplate(input.templatePath);
-  const baseTag = input.basePath ? `<base href="${escapeHtml(pathToFileURL(resolve(input.basePath)).href)}/">` : '';
+  const baseTag = input.basePath
+    ? `<base href="${escapeHtml(pathToFileURL(resolve(input.basePath)).href)}/">`
+    : '';
   const mathJax = input.includeMathJax ? MATHJAX_SNIPPET : '';
 
   let html = template;
