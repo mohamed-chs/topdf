@@ -2,12 +2,16 @@
 import { Command } from 'commander';
 import { readFile, stat, mkdir } from 'fs/promises';
 import { resolve, basename, extname, join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import chalk from 'chalk';
 import { glob } from 'glob';
 import chokidar from 'chokidar';
 import yaml from 'js-yaml';
 import { Renderer } from '../src/renderer.js';
 import type { RendererOptions } from '../src/types.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const pkg = JSON.parse(await readFile(join(__dirname, '..', 'package.json'), 'utf-8')) as { version: string };
 
 interface CliOptions {
   output?: string;
@@ -53,7 +57,7 @@ const loadConfig = async (): Promise<ConfigFile> => {
 program
   .name('topdf')
   .description('Convert Markdown to high-quality PDF.')
-  .version('1.0.0')
+  .version(pkg.version)
   .argument('<inputs...>', 'Input markdown files or glob patterns')
   .option('-o, --output <path>', 'Output directory or file path')
   .option('-w, --watch', 'Watch for changes')
