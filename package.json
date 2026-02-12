@@ -1,6 +1,7 @@
 {
   "name": "topdf",
   "version": "1.0.0",
+  "license": "MIT",
   "description": "Convert Markdown to high-quality PDF",
   "type": "module",
   "bin": {
