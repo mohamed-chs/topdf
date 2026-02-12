@@ -6,44 +6,93 @@ on:
       - 'v*'
   workflow_dispatch:
     inputs:
-      dry_run:
-        description: 'Run npm publish in dry-run mode'
+      tag:
+        description: Existing git tag to publish and release (for reruns/recovery)
         required: true
-        default: true
-        type: boolean
-      npm_tag:
-        description: 'npm dist-tag to publish under'
-        required: true
-        default: latest
         type: string
 
+permissions:
+  contents: read
+
 concurrency:
-  group: release-${{ github.ref_name }}
+  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
-  verify:
-    name: Verify release quality gate
+  verify-release:
+    name: Verify Release Candidate
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    permissions:
-      contents: read
+    timeout-minutes: 25
+    outputs:
+      release_tag: ${{ steps.release-metadata.outputs.release_tag }}
+      package_name: ${{ steps.release-metadata.outputs.package_name }}
+      package_version: ${{ steps.release-metadata.outputs.package_version }}
+      npm_dist_tag: ${{ steps.release-metadata.outputs.npm_dist_tag }}
+      tarball_name: ${{ steps.pack.outputs.tarball_name }}
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Setup Node
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
 
-      - name: Cache Puppeteer
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/puppeteer
-          key: release-puppeteer-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - name: Resolve and validate release metadata
+        id: release-metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            RELEASE_TAG="${{ inputs.tag }}"
+          else
+            RELEASE_TAG="${GITHUB_REF_NAME}"
+          fi
+
+          if [[ ! "${RELEASE_TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid release tag format: ${RELEASE_TAG}" >&2
+            echo "Expected a semver tag like v1.2.3 or v1.2.3-rc.1." >&2
+            exit 1
+          fi
+
+          if ! git rev-parse --verify --quiet "refs/tags/${RELEASE_TAG}" >/dev/null; then
+            echo "Tag ${RELEASE_TAG} does not exist in this repository." >&2
+            exit 1
+          fi
+
+          git fetch --no-tags origin main
+          TAG_COMMIT="$(git rev-list -n 1 "${RELEASE_TAG}")"
+          if ! git merge-base --is-ancestor "${TAG_COMMIT}" "origin/main"; then
+            echo "Tag ${RELEASE_TAG} is not based on origin/main; refusing to publish." >&2
+            exit 1
+          fi
+
+          git checkout --detach "refs/tags/${RELEASE_TAG}"
+
+          PACKAGE_NAME="$(node -pe "JSON.parse(require('node:fs').readFileSync('package.json', 'utf8')).name")"
+          PACKAGE_VERSION="$(node -pe "JSON.parse(require('node:fs').readFileSync('package.json', 'utf8')).version")"
+          EXPECTED_TAG="v${PACKAGE_VERSION}"
+
+          if [[ "${RELEASE_TAG}" != "${EXPECTED_TAG}" ]]; then
+            echo "Tag (${RELEASE_TAG}) does not match package.json version (${EXPECTED_TAG})." >&2
+            exit 1
+          fi
+
+          if [[ "${PACKAGE_VERSION}" == *-* ]]; then
+            NPM_DIST_TAG="next"
+          else
+            NPM_DIST_TAG="latest"
+          fi
+
+          echo "release_tag=${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
+          echo "package_name=${PACKAGE_NAME}" >> "$GITHUB_OUTPUT"
+          echo "package_version=${PACKAGE_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "npm_dist_tag=${NPM_DIST_TAG}" >> "$GITHUB_OUTPUT"
 
       - name: Install dependencies
         run: npm ci
@@ -51,21 +100,39 @@ jobs:
       - name: Run full quality gate
         run: npm run ci
 
-  publish:
-    name: Publish package
+      - name: Create package tarball
+        id: pack
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm pack --json > pack-result.json
+          TARBALL_NAME="$(node -pe "JSON.parse(require('node:fs').readFileSync('pack-result.json', 'utf8'))[0].filename")"
+          echo "tarball_name=${TARBALL_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-tarball
+          path: ${{ steps.pack.outputs.tarball_name }}
+          if-no-files-found: error
+
+  publish-npm:
+    name: Publish to npm
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: verify
-    if: ${{ startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' }}
+    needs: verify-release
     permissions:
-      contents: write
+      contents: read
       id-token: write
 
     steps:
-      - name: Checkout
+      - name: Checkout repository at release tag
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: refs/tags/${{ needs.verify-release.outputs.release_tag }}
 
-      - name: Setup Node
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -75,19 +142,66 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build package
+      - name: Build distributable
         run: npm run build
 
-      - name: Publish to npm (dry run)
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
-        run: npm publish --provenance --access public --tag "${{ inputs.npm_tag }}" --dry-run
+      - name: Check if version already exists on npm
+        id: npm-version-check
+        shell: bash
+        env:
+          PACKAGE_NAME: ${{ needs.verify-release.outputs.package_name }}
+          PACKAGE_VERSION: ${{ needs.verify-release.outputs.package_version }}
+        run: |
+          set -euo pipefail
 
-      - name: Publish to npm
-        if: ${{ startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && !inputs.dry_run) }}
-        run: npm publish --provenance --access public --tag "${{ startsWith(github.ref, 'refs/tags/v') && 'latest' || inputs.npm_tag }}"
+          if npm view "${PACKAGE_NAME}@${PACKAGE_VERSION}" version >/dev/null 2>&1; then
+            echo "already_published=true" >> "$GITHUB_OUTPUT"
+            echo "Version ${PACKAGE_NAME}@${PACKAGE_VERSION} is already published. Skipping npm publish."
+          else
+            echo "already_published=false" >> "$GITHUB_OUTPUT"
+          fi
 
-      - name: Create GitHub Release
-        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
-        uses: softprops/action-gh-release@v2
+      - name: Publish package with trusted publishing
+        if: ${{ steps.npm-version-check.outputs.already_published != 'true' }}
+        run: npm publish --provenance --access public --ignore-scripts --tag "${{ needs.verify-release.outputs.npm_dist_tag }}"
+
+  github-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs:
+      - verify-release
+      - publish-npm
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download package artifact
+        uses: actions/download-artifact@v4
         with:
-          generate_release_notes: true
+          name: release-tarball
+          path: release-artifacts
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.verify-release.outputs.release_tag }}
+          PACKAGE_NAME: ${{ needs.verify-release.outputs.package_name }}
+          PACKAGE_VERSION: ${{ needs.verify-release.outputs.package_version }}
+          TARBALL_NAME: ${{ needs.verify-release.outputs.tarball_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          RELEASE_TITLE="${PACKAGE_NAME} ${PACKAGE_VERSION}"
+          TARBALL_PATH="release-artifacts/${TARBALL_NAME}"
+
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            gh release upload "${RELEASE_TAG}" "${TARBALL_PATH}" --clobber
+            gh release edit "${RELEASE_TAG}" --title "${RELEASE_TITLE}"
+          else
+            gh release create "${RELEASE_TAG}" "${TARBALL_PATH}" \
+              --verify-tag \
+              --generate-notes \
+              --title "${RELEASE_TITLE}"
+          fi
