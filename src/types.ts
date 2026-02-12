@@ -1,4 +1,4 @@
-import type { Token, Tokens } from 'marked';
+import type { Tokens } from 'marked';
 
 export type PaperFormat = 'Letter' | 'Legal' | 'Tabloid' | 'Ledger' | 'A0' | 'A1' | 'A2' | 'A3' | 'A4' | 'A5' | 'A6';
 
@@ -33,16 +33,6 @@ export interface RenderResult {
   content: string;
 }
 
-// We use a custom type for tokens that might have our extensions
-export type MarkdownToken = (Token | { type: 'pageBreak'; raw: string } | { type: 'tocPlaceholder'; raw: string }) & {
-  id?: string;
-  tokens?: MarkdownToken[];
-  depth?: number;
-  text?: string;
-};
-
-// Actually, it's better to use type guards or casts.
-// Let's refine MarkdownToken to be more usable without any.
 export type CustomToken = Tokens.Generic & {
   id?: string;
   tokens?: CustomToken[];
