@@ -5,14 +5,14 @@ import { resolve, basename, extname, join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import chalk from 'chalk';
 import { glob } from 'glob';
-import chokidar from 'chokidar';
+import chokidar, { type FSWatcher } from 'chokidar';
 import yaml from 'js-yaml';
 import { Renderer } from '../src/renderer.js';
 import type { RendererOptions } from '../src/types.js';
+import { normalizeTocDepth } from '../src/utils/validation.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-// Walk up from __dirname to find package.json (works from both source `bin/` and compiled `dist/bin/`)
 const findPackageJson = async (dir: string): Promise<string> => {
   const candidate = join(dir, 'package.json');
   try {
@@ -46,26 +46,164 @@ interface ConfigFile extends RendererOptions {
   css?: string;
 }
 
-const program = new Command();
-const loadConfig = async (): Promise<ConfigFile> => {
-  for (const p of ['.topdfrc', '.topdfrc.json', '.topdfrc.yaml', '.topdfrc.yml']) {
-    try {
-      const configPath = resolve(p);
-      const config = yaml.load(await readFile(configPath, 'utf-8')) as ConfigFile;
-      if (!config) continue;
+interface LoadedConfig {
+  values: ConfigFile;
+  sourcePath: string | null;
+}
 
+type OutputMode = 'adjacent' | 'directory' | 'single-file';
+
+interface OutputStrategy {
+  mode: OutputMode;
+  targetPath: string | null;
+}
+
+interface InputDescriptor {
+  raw: string;
+  absolute: string;
+  hasGlobMagic: boolean;
+  isDirectory: boolean;
+}
+
+const program = new Command();
+const hasGlobMagic = (value: string): boolean => /[*?[\]{}()]/.test(value);
+
+const parseInteger = (value: string): number => {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) {
+    throw new Error(`Invalid integer "${value}"`);
+  }
+  return parsed;
+};
+
+const loadConfig = async (): Promise<LoadedConfig> => {
+  const candidates = ['.topdfrc', '.topdfrc.json', '.topdfrc.yaml', '.topdfrc.yml'];
+  for (const candidate of candidates) {
+    const configPath = resolve(candidate);
+    try {
+      const raw = await readFile(configPath, 'utf-8');
+      const parsed = yaml.load(raw, { schema: yaml.JSON_SCHEMA });
+      if (!parsed) return { values: {}, sourcePath: configPath };
+      if (typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new Error(`Expected object at root of config, got ${typeof parsed}`);
+      }
+
+      const config = parsed as ConfigFile;
       const configDir = dirname(configPath);
       if (config.css) config.css = resolve(configDir, config.css);
       if (config.template) config.template = resolve(configDir, config.template);
       if (config.header) config.header = resolve(configDir, config.header);
       if (config.footer) config.footer = resolve(configDir, config.footer);
-      return config;
-    } catch {
-      // Ignore errors for missing or invalid config files
+      return { values: config, sourcePath: configPath };
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
+        continue;
+      }
+      throw new Error(`Failed to parse config "${configPath}": ${message}`);
     }
   }
-  return {};
+  return { values: {}, sourcePath: null };
 };
+
+const describeInputs = async (inputs: string[]): Promise<InputDescriptor[]> => Promise.all(inputs.map(async (raw) => {
+  const absolute = resolve(raw);
+  try {
+    const stats = await stat(absolute);
+    return {
+      raw,
+      absolute,
+      hasGlobMagic: hasGlobMagic(raw),
+      isDirectory: stats.isDirectory()
+    };
+  } catch {
+    return {
+      raw,
+      absolute,
+      hasGlobMagic: hasGlobMagic(raw),
+      isDirectory: false
+    };
+  }
+}));
+
+const resolveMarkdownFiles = async (inputs: InputDescriptor[]): Promise<string[]> => {
+  const matches = await Promise.all(inputs.map(async (input) => {
+    try {
+      const stats = await stat(input.absolute);
+      if (stats.isFile()) return [input.absolute];
+      if (stats.isDirectory()) {
+        return glob('**/*.{md,markdown}', {
+          cwd: input.absolute,
+          nodir: true,
+          absolute: true
+        });
+      }
+    } catch {
+      // If the direct path doesn't exist, treat it as a glob expression.
+    }
+
+    return glob(input.raw, { nodir: true, absolute: true });
+  }));
+
+  return [...new Set(matches.flat().filter((value) => /\.(md|markdown)$/i.test(value)))].sort((a, b) => a.localeCompare(b));
+};
+
+const resolveOutputStrategy = (outputPath: string | undefined, inputs: InputDescriptor[]): OutputStrategy => {
+  if (!outputPath) return { mode: 'adjacent', targetPath: null };
+  const absolute = resolve(outputPath);
+  if (!absolute.toLowerCase().endsWith('.pdf')) {
+    return { mode: 'directory', targetPath: absolute };
+  }
+
+  const maybeMultiple = inputs.length > 1 || inputs.some((input) => input.isDirectory || input.hasGlobMagic);
+  if (maybeMultiple) {
+    throw new Error('Output path cannot be a single .pdf file when inputs can expand to multiple markdown files.');
+  }
+
+  return { mode: 'single-file', targetPath: absolute };
+};
+
+const toOutputPath = (inputPath: string, strategy: OutputStrategy): string => {
+  if (strategy.mode === 'adjacent') {
+    return join(dirname(inputPath), `${basename(inputPath, extname(inputPath))}.pdf`);
+  }
+  if (strategy.mode === 'single-file') {
+    if (!strategy.targetPath) throw new Error('Single file output path is missing');
+    return strategy.targetPath;
+  }
+  if (!strategy.targetPath) throw new Error('Output directory path is missing');
+  return join(strategy.targetPath, `${basename(inputPath, extname(inputPath))}.pdf`);
+};
+
+const readTemplate = async (pathValue?: string): Promise<string | null> => {
+  if (!pathValue) return null;
+  try {
+    return await readFile(resolve(pathValue), 'utf-8');
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to read template file "${pathValue}": ${message}`);
+  }
+};
+
+class ConversionQueue {
+  private chain: Promise<void> = Promise.resolve();
+  private pending = new Set<string>();
+
+  enqueue(filePath: string, convert: (file: string) => Promise<void>): void {
+    if (this.pending.has(filePath)) return;
+    this.pending.add(filePath);
+    this.chain = this.chain
+      .then(async () => {
+        this.pending.delete(filePath);
+        await convert(filePath);
+      })
+      .catch((error: unknown) => {
+        this.pending.delete(filePath);
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(chalk.red('Queue error:'), message);
+      });
+  }
+}
 
 program
   .name('topdf')
@@ -81,112 +219,114 @@ program
   .option('--header <path>', 'Custom header template')
   .option('--footer <path>', 'Custom footer template')
   .option('--toc', 'Generate Table of Contents')
-  .option('--toc-depth <depth>', 'Table of Contents depth', (v) => parseInt(v, 10), 6)
+  .option('--toc-depth <depth>', 'Table of Contents depth', parseInteger)
   .option('--no-math', 'Disable MathJax')
   .action(async (inputs: string[], options: CliOptions) => {
-    const config = await loadConfig();
-    const opts = { ...config, ...options };
-
-    const getFiles = async (): Promise<string[]> => {
-      const expanded = await Promise.all(inputs.map(async (i: string) => {
-        try {
-          const s = await stat(i);
-          if (s.isDirectory()) return glob(join(i, '**/*.{md,markdown}'));
-        } catch {
-          // Ignore
-        }
-        return glob(i);
-      }));
-      return [...new Set(expanded.flat().filter(f => /\.(md|markdown)$/i.test(f)))];
-    };
-
-    const files = await getFiles();
-    if (!files.length) {
-      console.error(chalk.red('Error: No input files found.'));
-      process.exit(1);
-    }
-    if (files.length > 1 && opts.output?.endsWith('.pdf')) {
-      console.error(chalk.red('Error: Output path cannot be a .pdf file for multiple inputs.'));
-      process.exit(1);
-    }
-
-    const readTpl = async (p?: string): Promise<string | null> => p ? readFile(resolve(p), 'utf-8') : null;
-
-    const renderer = new Renderer({
-      customCss: opts.css ? resolve(opts.css) : null,
-      template: opts.template ? resolve(opts.template) : null,
-      margin: opts.margin,
-      format: opts.format,
-      toc: opts.toc,
-      tocDepth: opts.tocDepth,
-      math: opts.math,
-      headerTemplate: await readTpl(opts.header),
-      footerTemplate: await readTpl(opts.footer)
-    });
-
-    let successCount = 0;
-    let failCount = 0;
-
-    const convert = async (file: string): Promise<void> => {
-      try {
-        const input = resolve(file);
-        const inputStat = await stat(input);
-        if (inputStat.isDirectory()) return;
-
-        const out = opts.output ? resolve(opts.output) : null;
-        let outputPath: string;
-
-        if (out) {
-          const outExists = await stat(out).catch(() => null);
-          const isExplicitDir = outExists?.isDirectory() || (!out.toLowerCase().endsWith('.pdf'));
-
-          if (files.length > 1 || isExplicitDir) {
-            outputPath = join(out, `${basename(input, extname(input))}.pdf`);
-          } else {
-            outputPath = out;
-          }
-        } else {
-          outputPath = join(dirname(input), `${basename(input, extname(input))}.pdf`);
-        }
-
-        await mkdir(dirname(outputPath), { recursive: true });
-        console.log(chalk.blue(`Converting ${chalk.bold(file)} → ${chalk.bold(outputPath)}...`));
-        await renderer.generatePdf(await readFile(input, 'utf-8'), outputPath, { basePath: dirname(input) });
-        console.log(chalk.green(`✔ Done: ${basename(outputPath)}`));
-        successCount++;
-      } catch (e: unknown) {
-        const message = e instanceof Error ? e.message : String(e);
-        console.error(chalk.red('Error:'), message);
-        failCount++;
-      }
-    };
-
-    for (const f of files) await convert(f);
-
+    let watcher: FSWatcher | null = null;
     const cleanup = async (): Promise<void> => {
-      console.log(chalk.yellow('\nGracefully shutting down...'));
-      await renderer.close();
-      process.exit(0);
+      if (watcher) await watcher.close().catch(() => { });
     };
 
-    process.on('SIGINT', cleanup);
-    process.on('SIGTERM', cleanup);
-
-    if (options.watch) {
-      console.log(chalk.yellow('\nWatching for changes... (Press Ctrl+C to stop)'));
-      chokidar.watch(inputs, { ignored: /(^|[\/\\])\../, persistent: true }).on('all', async (event, path) => {
-        if (['add', 'change'].includes(event) && /\.(md|markdown)$/i.test(path)) {
-          console.log(chalk.cyan(`\n${event === 'add' ? 'New file' : 'Change'} detected: ${path}`));
-          await convert(path);
-        }
-      });
-    } else {
-      await renderer.close();
-      if (successCount) console.log(chalk.green(`\n✔ Successfully converted ${successCount} file(s).`));
-      if (failCount) {
-        console.log(chalk.red(`\n✖ Failed to convert ${failCount} file(s).`));
-        process.exit(1);
+    try {
+      const config = await loadConfig();
+      if (config.sourcePath) {
+        console.log(chalk.gray(`Using config: ${config.sourcePath}`));
       }
+
+      const opts = { ...config.values, ...options };
+      if (opts.tocDepth !== undefined) {
+        opts.tocDepth = normalizeTocDepth(opts.tocDepth);
+      }
+
+      const describedInputs = await describeInputs(inputs);
+      const outputStrategy = resolveOutputStrategy(opts.output, describedInputs);
+      const files = await resolveMarkdownFiles(describedInputs);
+      if (!files.length) {
+        throw new Error('No input markdown files found.');
+      }
+
+      const firstInput = describedInputs[0];
+      const singleInput = describedInputs.length === 1 && firstInput && !firstInput.isDirectory && !firstInput.hasGlobMagic
+        ? firstInput.absolute
+        : null;
+
+      const renderer = new Renderer({
+        customCss: opts.css ? resolve(opts.css) : null,
+        template: opts.template ? resolve(opts.template) : null,
+        margin: opts.margin,
+        format: opts.format,
+        toc: opts.toc,
+        tocDepth: opts.tocDepth,
+        math: opts.math,
+        headerTemplate: await readTemplate(opts.header),
+        footerTemplate: await readTemplate(opts.footer)
+      });
+
+      let successCount = 0;
+      let failCount = 0;
+
+      const convert = async (filePath: string): Promise<void> => {
+        try {
+          const inputPath = resolve(filePath);
+          const inputStat = await stat(inputPath);
+          if (!inputStat.isFile()) return;
+
+          if (outputStrategy.mode === 'single-file' && singleInput && inputPath !== singleInput) {
+            console.log(chalk.yellow(`Skipping ${inputPath}: output is configured as a single PDF file for ${singleInput}.`));
+            return;
+          }
+
+          const outputPath = toOutputPath(inputPath, outputStrategy);
+          await mkdir(dirname(outputPath), { recursive: true });
+          console.log(chalk.blue(`Converting ${chalk.bold(inputPath)} -> ${chalk.bold(outputPath)}...`));
+          const markdown = await readFile(inputPath, 'utf-8');
+          await renderer.generatePdf(markdown, outputPath, { basePath: dirname(inputPath) });
+          console.log(chalk.green(`Done: ${basename(outputPath)}`));
+          successCount++;
+        } catch (error: unknown) {
+          const message = error instanceof Error ? error.message : String(error);
+          console.error(chalk.red(`Failed (${filePath}): ${message}`));
+          failCount++;
+        }
+      };
+
+      for (const filePath of files) {
+        await convert(filePath);
+      }
+
+      const onSignal = async (): Promise<void> => {
+        console.log(chalk.yellow('\nGracefully shutting down...'));
+        await cleanup();
+        await renderer.close();
+        process.exit(0);
+      };
+      process.on('SIGINT', onSignal);
+      process.on('SIGTERM', onSignal);
+
+      if (opts.watch) {
+        console.log(chalk.yellow('\nWatching for changes... (Press Ctrl+C to stop)'));
+        const queue = new ConversionQueue();
+        watcher = chokidar.watch(inputs, { ignored: /(^|[\/\\])\../, persistent: true, ignoreInitial: true });
+        watcher.on('all', (event: string, changedPath: string) => {
+          if (!['add', 'change'].includes(event) || !/\.(md|markdown)$/i.test(changedPath)) return;
+          const absoluteChangedPath = resolve(changedPath);
+          console.log(chalk.cyan(`\n${event === 'add' ? 'New file' : 'Change'} detected: ${absoluteChangedPath}`));
+          queue.enqueue(absoluteChangedPath, convert);
+        });
+      } else {
+        await renderer.close();
+        if (successCount) {
+          console.log(chalk.green(`\nSuccessfully converted ${successCount} file(s).`));
+        }
+        if (failCount) {
+          throw new Error(`Failed to convert ${failCount} file(s).`);
+        }
+      }
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(chalk.red('Error:'), message);
+      await cleanup();
+      process.exit(1);
     }
   });
 

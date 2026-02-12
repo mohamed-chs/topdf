@@ -1,6 +1,20 @@
 import type { Tokens } from 'marked';
 
-export type PaperFormat = 'Letter' | 'Legal' | 'Tabloid' | 'Ledger' | 'A0' | 'A1' | 'A2' | 'A3' | 'A4' | 'A5' | 'A6';
+export const PAPER_FORMATS = [
+  'Letter',
+  'Legal',
+  'Tabloid',
+  'Ledger',
+  'A0',
+  'A1',
+  'A2',
+  'A3',
+  'A4',
+  'A5',
+  'A6'
+] as const;
+
+export type PaperFormat = (typeof PAPER_FORMATS)[number];
 
 export interface RendererOptions {
   margin?: string;
@@ -18,19 +32,21 @@ export interface RendererOptions {
 
 export interface Frontmatter {
   title?: string;
+  toc?: boolean;
   tocDepth?: number;
   [key: string]: unknown;
+}
+
+export interface FrontmatterParseResult {
+  data: Frontmatter;
+  content: string;
+  warnings: string[];
 }
 
 export interface TocHeading {
   level: number;
   text: string;
   id: string;
-}
-
-export interface RenderResult {
-  data: Frontmatter;
-  content: string;
 }
 
 export type CustomToken = Tokens.Generic & {
