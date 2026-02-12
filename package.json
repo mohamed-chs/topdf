@@ -4,11 +4,35 @@
   "license": "MIT",
   "description": "Convert Markdown to high-quality PDF",
   "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
   "bin": {
     "topdf": "./dist/bin/topdf.js"
   },
-  "main": "./dist/src/renderer.js",
-  "types": "./dist/src/renderer.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/src/renderer.js",
+      "types": "./dist/src/renderer.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "markdown",
+    "pdf",
+    "converter",
+    "puppeteer",
+    "cli"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mohamed-chs/topdf.git"
+  },
+  "homepage": "https://github.com/mohamed-chs/topdf#readme",
   "scripts": {
     "build": "tsc && mkdir -p dist/src/styles && cp src/styles/*.css dist/src/styles/",
     "test": "vitest run",
