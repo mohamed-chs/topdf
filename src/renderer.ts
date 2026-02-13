@@ -29,10 +29,20 @@ export class Renderer {
 
   async init(): Promise<void> {
     if (!this.browser) {
-      this.browser = await puppeteer.launch({
-        headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox']
-      });
+      try {
+        this.browser = await puppeteer.launch({
+          headless: true,
+          executablePath: this.options.executablePath ?? process.env.PUPPETEER_EXECUTABLE_PATH,
+          args: ['--no-sandbox', '--disable-setuid-sandbox']
+        });
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(
+          `Failed to launch browser: ${message}\n\n` +
+            'See the Troubleshooting section in README for common issues and solutions:\n' +
+            'https://github.com/mohamed-chs/convpdf#troubleshooting'
+        );
+      }
       this.page = await this.browser.newPage();
     }
   }

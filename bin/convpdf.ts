@@ -40,6 +40,7 @@ interface CliOptions {
   toc?: boolean;
   tocDepth?: number;
   math?: boolean;
+  executablePath?: string;
 }
 
 interface ConfigFile extends RendererOptions {
@@ -236,6 +237,7 @@ program
   .option('--toc', 'Generate Table of Contents')
   .option('--toc-depth <depth>', 'Table of Contents depth', parseInteger)
   .option('--no-math', 'Disable MathJax')
+  .option('--executable-path <path>', 'Puppeteer browser executable path')
   .action(async (inputs: string[], options: CliOptions) => {
     let watcher: FSWatcher | null = null;
     const cleanup = async (): Promise<void> => {
@@ -278,7 +280,8 @@ program
         tocDepth: opts.tocDepth,
         math: opts.math,
         headerTemplate: await readTemplate(opts.header),
-        footerTemplate: await readTemplate(opts.footer)
+        footerTemplate: await readTemplate(opts.footer),
+        executablePath: opts.executablePath
       });
 
       let successCount = 0;

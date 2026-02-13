@@ -40,6 +40,18 @@ convpdf "docs/**/*.md" --watch -o pdf/
 - `--toc`: Generate Table of Contents.
 - `--toc-depth <depth>`: TOC depth from `1` to `6`.
 - `--no-math`: Disable MathJax.
+- `--executable-path <path>`: Custom browser executable path.
+
+## Installation
+
+```bash
+npm install -g convpdf
+```
+
+### Prerequisites
+
+- **Node.js**: >= 18.0.0
+- **Chromium**: Automatically downloaded by Puppeteer.
 
 ## Configuration
 
@@ -59,6 +71,21 @@ footer: ./templates/footer.html
 ```
 
 Paths in config files are resolved relative to the config file location.
+
+## Troubleshooting
+
+### Missing Fonts on Linux
+
+If emojis or special characters aren't rendering correctly in the generated PDF, you might need to install additional fonts:
+
+```bash
+# Ubuntu/Debian
+sudo apt-get install fonts-noto-color-emoji fonts-liberation
+```
+
+### Puppeteer Browser Issues
+
+If you encounter errors launching the browser, you may need to install missing system dependencies for Chromium. You can also specify a custom browser path using the `--executable-path` flag or `PUPPETEER_EXECUTABLE_PATH` environment variable.
 
 ## Quality Gate
 

@@ -29,6 +29,7 @@ export interface RendererOptions {
   footerTemplate?: string | null;
   basePath?: string;
   title?: string;
+  executablePath?: string;
 }
 
 export interface Frontmatter {
