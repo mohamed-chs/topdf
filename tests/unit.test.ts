@@ -21,6 +21,13 @@ describe('Renderer', () => {
     expect(content.trim()).toBe('# W');
   });
 
+  it('uses default options', () => {
+    // @ts-expect-error - testing private options
+    expect(r.options.margin).toBe('15mm 10mm');
+    // @ts-expect-error - testing private options
+    expect(r.options.format).toBe('A4');
+  });
+
   it('handles empty frontmatter as metadata section', () => {
     const parsed = parseFrontmatter('---\n---\n# C');
     expect(parsed.data).toEqual({});
@@ -212,6 +219,15 @@ describe('Validation', () => {
       right: '2in',
       bottom: '3in',
       left: '2in'
+    });
+  });
+
+  it('uses default margin if not provided', () => {
+    expect(parseMargin()).toEqual({
+      top: '15mm',
+      right: '10mm',
+      bottom: '15mm',
+      left: '10mm'
     });
   });
 

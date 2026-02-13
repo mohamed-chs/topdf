@@ -7,7 +7,7 @@ const FORMAT_LOOKUP: ReadonlyMap<string, PaperFormat> = new Map(
 );
 
 export const parseMargin = (rawMargin?: string): PDFMargin => {
-  const margin = rawMargin?.trim() || '20mm';
+  const margin = rawMargin?.trim() || '15mm 10mm';
   const parts = margin.split(/\s+/).filter(Boolean);
 
   if (parts.length < 1 || parts.length > 4) {

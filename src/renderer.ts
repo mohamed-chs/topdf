@@ -24,7 +24,7 @@ export class Renderer {
   private page: Page | null = null;
 
   constructor(options: RendererOptions = {}) {
-    this.options = { margin: '20mm', format: 'A4', ...options };
+    this.options = { margin: '15mm 10mm', format: 'A4', ...options };
   }
 
   async init(): Promise<void> {

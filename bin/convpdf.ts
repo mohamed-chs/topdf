@@ -229,7 +229,7 @@ program
   .option('-w, --watch', 'Watch for changes')
   .option('-c, --css <path>', 'Custom CSS')
   .option('-t, --template <path>', 'Custom HTML template')
-  .option('-m, --margin <margin>', 'Page margin', '20mm')
+  .option('-m, --margin <margin>', 'Page margin', '15mm 10mm')
   .option('-f, --format <format>', 'PDF format', 'A4')
   .option('--header <path>', 'Custom header template')
   .option('--footer <path>', 'Custom footer template')
