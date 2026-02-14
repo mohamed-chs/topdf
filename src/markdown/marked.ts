@@ -6,7 +6,7 @@ import { gfmHeadingId } from 'marked-gfm-heading-id';
 import footnote from 'marked-footnote';
 import hljs from 'highlight.js';
 import type GithubSlugger from 'github-slugger';
-import { sanitizeHref } from '../utils/html.js';
+import { escapeHtml, sanitizeHref } from '../utils/html.js';
 import type { CustomToken } from '../types.js';
 
 const stripHtml = (value: string): string => value.replace(/<[^>]+>/g, '').trim();
@@ -27,6 +27,8 @@ const rewriteMarkdownHref = (href: string): string => {
   if (/\.md$/i.test(path)) return `${path.replace(/\.md$/i, '.pdf')}${suffix}`;
   return href;
 };
+const MERMAID_FENCE_PATTERN =
+  /^( {0,3})(`{3,}|~{3,})[ \t]*mermaid(?:[^\r\n]*)\r?\n([\s\S]*?)\r?\n\1\2[ \t]*(?:\r?\n|$)/;
 
 export const createMarkedInstance = (slugger: GithubSlugger): Marked => {
   const marked = new Marked()
@@ -56,6 +58,25 @@ export const createMarkedInstance = (slugger: GithubSlugger): Marked => {
         }
       },
       extensions: [
+        {
+          name: 'mermaid',
+          level: 'block',
+          start(source: string) {
+            return source.match(/ {0,3}(?:`{3,}|~{3,})[ \t]*mermaid(?:[^\r\n]*)\r?\n/)?.index;
+          },
+          tokenizer(source: string) {
+            const match = MERMAID_FENCE_PATTERN.exec(source);
+            if (!match) return undefined;
+            return {
+              type: 'mermaid',
+              raw: match[0],
+              text: match[3] ?? ''
+            };
+          },
+          renderer(token: Token & { text?: string }) {
+            return `<div class="mermaid">${escapeHtml(token.text ?? '')}</div>\n`;
+          }
+        },
         {
           name: 'pageBreak',
           level: 'block',

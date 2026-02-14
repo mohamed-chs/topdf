@@ -10,6 +10,7 @@ export interface HtmlTemplateInput {
   content: string;
   basePath?: string;
   includeMathJax: boolean;
+  includeMermaid: boolean;
 }
 
 const DEFAULT_TEMPLATE = `<!DOCTYPE html>
@@ -21,6 +22,7 @@ const DEFAULT_TEMPLATE = `<!DOCTYPE html>
     <title>{{title}}</title>
     <style>{{css}}</style>
     {{mathjax}}
+    {{mermaid}}
   </head>
   <body class="markdown-body">
     {{content}}
@@ -39,6 +41,14 @@ const MATHJAX_SNIPPET = `
   };
 </script>
 <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>`;
+
+const MERMAID_SNIPPET = `
+<script id="Mermaid-script" src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script>
+  if (window.mermaid && typeof window.mermaid.initialize === 'function') {
+    window.mermaid.initialize({ startOnLoad: false, securityLevel: 'strict' });
+  }
+</script>`;
 
 const loadTemplate = async (templatePath?: string | null): Promise<string> => {
   if (!templatePath) return DEFAULT_TEMPLATE;
@@ -59,6 +69,7 @@ export const renderTemplate = async (input: HtmlTemplateInput): Promise<string> 
     ? `<base href="${escapeHtml(pathToFileURL(resolve(input.basePath)).href)}/">`
     : '';
   const mathJax = input.includeMathJax ? MATHJAX_SNIPPET : '';
+  const mermaid = input.includeMermaid ? MERMAID_SNIPPET : '';
 
   let html = template;
   html = replaceToken(html, 'title', escapeHtml(input.title));
@@ -66,5 +77,6 @@ export const renderTemplate = async (input: HtmlTemplateInput): Promise<string> 
   html = replaceToken(html, 'css', input.css);
   html = replaceToken(html, 'content', input.content);
   html = replaceToken(html, 'mathjax', mathJax);
+  html = replaceToken(html, 'mermaid', mermaid);
   return html;
 };

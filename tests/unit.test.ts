@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 import { mkdtemp, writeFile, rm } from 'fs/promises';
 import { tmpdir } from 'os';
 import { parseFrontmatter } from '../src/markdown/frontmatter.js';
+import { hasMermaidSyntax } from '../src/markdown/mermaid.js';
 import { normalizePaperFormat, normalizeTocDepth, parseMargin } from '../src/utils/validation.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -57,6 +58,18 @@ describe('Renderer', () => {
 
   it('does not include MathJax script when math is disabled', async () => {
     expect(await r.renderHtml('$E=mc^2$', { math: false })).not.toContain('MathJax-script');
+  });
+
+  it('includes Mermaid script and renders mermaid fences as diagram containers', async () => {
+    const html = await r.renderHtml('```mermaid\ngraph TD;\nA --> B;\n```');
+    expect(html).toContain('Mermaid-script');
+    expect(html).toContain('<div class="mermaid">graph TD;\nA --&gt; B;</div>');
+    expect(html).not.toContain('language-mermaid');
+  });
+
+  it('does not include Mermaid script when mermaid is disabled', async () => {
+    const html = await r.renderHtml('```mermaid\ngraph TD;\nA --> B;\n```', { mermaid: false });
+    expect(html).not.toContain('Mermaid-script');
   });
 
   it('handles footnotes', async () => {
@@ -212,6 +225,11 @@ describe('Renderer', () => {
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
+  });
+
+  it('detects mermaid fenced blocks', () => {
+    expect(hasMermaidSyntax('```mermaid\ngraph LR;\nA-->B;\n```')).toBe(true);
+    expect(hasMermaidSyntax('```js\nconsole.log("no mermaid");\n```')).toBe(false);
   });
 });
 

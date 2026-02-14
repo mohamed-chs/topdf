@@ -17,20 +17,22 @@
 `convpdf` is a high-fidelity Markdown-to-PDF engine built on **TypeScript** and **Puppeteer**. It prioritizes visual precision by treating PDF generation as a web-first rendering task.
 
 - **Fidelity-First Pipeline**: Markdown is transformed into a modern HTML document via a structured pipeline: Frontmatter extraction -> Math protection -> Marked tokenization -> HTML templating.
-- **Headless Precision**: Uses Puppeteer to render the final HTML, ensuring complex layouts, MathJax, and syntax highlighting are captured exactly as intended.
+- **Headless Precision**: Uses Puppeteer to render the final HTML, ensuring complex layouts, MathJax, Mermaid diagrams, and syntax highlighting are captured exactly as intended.
 - **Concurrency & Parallelism**: Employs a **Page Pooling** strategy where a single browser instance is shared across multiple concurrent conversion tasks. Each task gets its own `Page`, ensuring isolation and resource efficiency.
 - **Modular Design**: The system is partitioned into independent domains (Markdown, HTML, Styles, Utils) orchestrated by a central `Renderer`. This makes it easy to swap parsing logic, inject custom styles, or use it as a library.
 - **Developer UX**: A powerful CLI supports glob expansion, watch mode, and hierarchical configuration (`.convpdfrc*`), catering to both quick one-offs and automated CI/CD workflows. Now includes `-j, --concurrency` for high-throughput batch processing.
 
 ## Codebase Overview
 - **`bin/convpdf.ts`**: The **CLI ENTRY POINT**. Responsible for command-line argument parsing (Commander), config loading (`.convpdfrc*`), deterministic input expansion, output strategy validation, and serialized watch-mode conversion.
+- Supports runtime rendering toggles such as `--no-math` and `--no-mermaid` so heavy browser-side renderers can be disabled explicitly.
 - **`src/renderer.ts`**: The **ORCHESTRATOR**. Coordinates markdown parsing, HTML assembly, browser rendering, and PDF generation.
 - **`src/markdown/`**: Markdown pipeline modules:
   - `frontmatter.ts` for frontmatter parsing/validation
   - `math.ts` for math protection/detection
+  - `mermaid.ts` for mermaid-fence detection
   - `marked.ts` for Marked setup/extensions/safe links
   - `toc.ts` for TOC generation
-- **`src/html/template.ts`**: HTML document assembly with safe token replacement and optional MathJax injection.
+- **`src/html/template.ts`**: HTML document assembly with safe token replacement and optional MathJax/Mermaid script injection.
 - **`src/utils/`**: Shared helpers:
   - `html.ts` for escaping/sanitization
   - `validation.ts` for margin/format/toc-depth validation

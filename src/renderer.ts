@@ -9,6 +9,7 @@ import GithubSlugger from 'github-slugger';
 import type { RendererOptions, Frontmatter, CustomToken } from './types.js';
 import { parseFrontmatter } from './markdown/frontmatter.js';
 import { protectMath, hasMathSyntax } from './markdown/math.js';
+import { hasMermaidSyntax } from './markdown/mermaid.js';
 import { createMarkedInstance } from './markdown/marked.js';
 import { generateToc } from './markdown/toc.js';
 import { renderTemplate } from './html/template.js';
@@ -135,7 +136,8 @@ export class Renderer {
       css,
       content: html,
       basePath: opts.basePath,
-      includeMathJax: opts.math !== false && hasMathSyntax(content)
+      includeMathJax: opts.math !== false && hasMathSyntax(content),
+      includeMermaid: opts.mermaid !== false && hasMermaidSyntax(content)
     });
   }
 
@@ -190,25 +192,47 @@ export class Renderer {
           MathJax?: {
             typesetPromise?: () => Promise<void>;
           };
-        };
-        if (!document.getElementById('MathJax-script')) return;
-
-        await new Promise<void>((resolve, reject) => {
-          const startedAt = Date.now();
-          const tick = () => {
-            if (win.MathJax?.typesetPromise) {
-              resolve();
-              return;
-            }
-            if (Date.now() - startedAt > 10000) {
-              reject(new Error('MathJax did not initialize within 10s'));
-              return;
-            }
-            setTimeout(tick, 100);
+          mermaid?: {
+            run?: (options?: { querySelector?: string; suppressErrors?: boolean }) => Promise<void>;
           };
-          tick();
-        });
-        await win.MathJax?.typesetPromise?.();
+        };
+        if (document.getElementById('MathJax-script')) {
+          await new Promise<void>((resolve, reject) => {
+            const startedAt = Date.now();
+            const tick = () => {
+              if (win.MathJax?.typesetPromise) {
+                resolve();
+                return;
+              }
+              if (Date.now() - startedAt > 10000) {
+                reject(new Error('MathJax did not initialize within 10s'));
+                return;
+              }
+              setTimeout(tick, 100);
+            };
+            tick();
+          });
+          await win.MathJax?.typesetPromise?.();
+        }
+
+        if (document.getElementById('Mermaid-script') && document.querySelector('.mermaid')) {
+          await new Promise<void>((resolve, reject) => {
+            const startedAt = Date.now();
+            const tick = () => {
+              if (win.mermaid?.run) {
+                resolve();
+                return;
+              }
+              if (Date.now() - startedAt > 10000) {
+                reject(new Error('Mermaid did not initialize within 10s'));
+                return;
+              }
+              setTimeout(tick, 100);
+            };
+            tick();
+          });
+          await win.mermaid?.run?.({ querySelector: '.mermaid', suppressErrors: false });
+        }
       });
 
       const margin = parseMargin(opts.margin);

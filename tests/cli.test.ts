@@ -151,6 +151,17 @@ describe('CLI', () => {
     }
   });
 
+  it('renders mermaid diagrams in generated PDFs', { timeout: 30000 }, async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'convpdf-cli-mermaid-'));
+    try {
+      await writeFile(join(dir, 'diagram.md'), '```mermaid\ngraph TD;\nA --> B;\n```');
+      runCli(['diagram.md', '-o', 'diagram.pdf'], dir);
+      expect(existsSync(join(dir, 'diagram.pdf'))).toBe(true);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it('honors toc depth validation', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'convpdf-cli-tocdepth-'));
     try {

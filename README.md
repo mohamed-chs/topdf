@@ -5,7 +5,7 @@ Convert Markdown to high-quality PDF using Node.js, Marked, and Puppeteer.
 ## Features
 
 - **Zero-Config**: Beautiful defaults out of the box.
-- **High Fidelity**: Professional rendering of math (MathJax), code (Highlight.js), and tables.
+- **High Fidelity**: Professional rendering of math (MathJax), Mermaid diagrams, code (Highlight.js), and tables.
 - **Advanced Layout**: Support for [TOC], footnotes, and `<!-- PAGE_BREAK -->`.
 - **Customizable**: Override CSS, templates, headers, and footers.
 - **Batch Processing**: Convert multiple files using glob patterns.
@@ -30,6 +30,20 @@ convpdf "docs/**/*.md" --watch -o pdf/
 convpdf "docs/*.md" -o dist/ -j 4
 ```
 
+## Mermaid Examples
+
+Two ready-to-run Mermaid examples are available in `examples/`:
+
+- `examples/mermaid-flowchart.md`
+- `examples/mermaid-sequence.md`
+
+Generate PDFs:
+
+```bash
+convpdf examples/mermaid-flowchart.md -o examples/mermaid-flowchart.pdf
+convpdf examples/mermaid-sequence.md -o examples/mermaid-sequence.pdf
+```
+
 ## Options
 
 - `-o, --output <path>`: Output directory or file path.
@@ -44,6 +58,7 @@ convpdf "docs/*.md" -o dist/ -j 4
 - `--toc`: Generate Table of Contents.
 - `--toc-depth <depth>`: TOC depth from `1` to `6`.
 - `--no-math`: Disable MathJax.
+- `--no-mermaid`: Disable Mermaid diagram rendering.
 - `--executable-path <path>`: Custom browser executable path.
 - `--preserve-timestamp`: Preserve modification time from markdown file.
 
@@ -69,6 +84,7 @@ margin: 15mm
 format: A4
 toc: true
 tocDepth: 3
+mermaid: true
 css: ./styles/custom.css
 template: ./templates/report.html
 header: ./templates/header.html

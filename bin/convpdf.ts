@@ -42,6 +42,7 @@ interface CliOptions {
   toc?: boolean;
   tocDepth?: number;
   math?: boolean;
+  mermaid?: boolean;
   executablePath?: string;
   preserveTimestamp?: boolean;
   concurrency?: number;
@@ -256,6 +257,7 @@ program
   .option('--toc', 'Generate Table of Contents')
   .option('--toc-depth <depth>', 'Table of Contents depth', parseInteger)
   .option('--no-math', 'Disable MathJax')
+  .option('--no-mermaid', 'Disable Mermaid diagrams')
   .option('--executable-path <path>', 'Puppeteer browser executable path')
   .option('--preserve-timestamp', 'Preserve modification time from markdown file')
   .option('-j, --concurrency <number>', 'Number of concurrent conversions', parseInteger, 1)
@@ -319,6 +321,7 @@ program
         toc: opts.toc,
         tocDepth: opts.tocDepth,
         math: opts.math,
+        mermaid: opts.mermaid,
         headerTemplate: await readTemplate(opts.header),
         footerTemplate: await readTemplate(opts.footer),
         executablePath: opts.executablePath

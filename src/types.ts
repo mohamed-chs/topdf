@@ -23,6 +23,7 @@ export interface RendererOptions {
   toc?: boolean;
   tocDepth?: number;
   math?: boolean;
+  mermaid?: boolean;
   customCss?: string | null;
   template?: string | null;
   headerTemplate?: string | null;
