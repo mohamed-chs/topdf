@@ -8,6 +8,7 @@ import { glob } from 'glob';
 import chokidar, { type FSWatcher } from 'chokidar';
 import yaml from 'js-yaml';
 import pLimit from 'p-limit';
+import cliProgress from 'cli-progress';
 import { Renderer } from '../src/renderer.js';
 import type { RendererOptions } from '../src/types.js';
 import { normalizeTocDepth } from '../src/utils/validation.js';
@@ -297,23 +298,35 @@ program
 
       const counts = { success: 0, fail: 0 };
 
+      let bar: cliProgress.SingleBar | null = null;
+      if (!opts.watch && files.length > 0 && process.stdout.isTTY) {
+        bar = new cliProgress.SingleBar({
+          format: `${chalk.blue('Converting')} {bar} {percentage}% | {value}/{total} | {file}`,
+          barCompleteChar: '\u2588',
+          barIncompleteChar: '\u2591',
+          hideCursor: true
+        });
+        bar.start(files.length, 0, { file: '' });
+      }
+
       const convert = async (filePath: string): Promise<void> => {
+        const inputPath = resolve(filePath);
+        const relInput = relative(process.cwd(), inputPath);
         try {
-          const inputPath = resolve(filePath);
           const inputStat = await stat(inputPath);
           if (!inputStat.isFile()) return;
 
-          const relInput = relative(process.cwd(), inputPath);
-
           if (outputStrategy.mode === 'single-file' && singleInput && inputPath !== singleInput) {
-            console.log(
-              chalk.yellow(
-                `Skipping ${relInput}: output is configured as a single PDF file for ${relative(
-                  process.cwd(),
-                  singleInput
-                )}.`
-              )
-            );
+            if (!bar) {
+              console.log(
+                chalk.yellow(
+                  `Skipping ${relInput}: output is configured as a single PDF file for ${relative(
+                    process.cwd(),
+                    singleInput
+                  )}.`
+                )
+              );
+            }
             return;
           }
 
@@ -321,7 +334,15 @@ program
           const relOutput = relative(process.cwd(), outputPath);
 
           await mkdir(dirname(outputPath), { recursive: true });
-          console.log(chalk.blue(`Converting ${chalk.bold(relInput)} -> ${chalk.bold(relOutput)}...`));
+
+          if (bar) {
+            bar.update(counts.success + counts.fail, { file: relInput });
+          } else {
+            console.log(
+              chalk.blue(`Converting ${chalk.bold(relInput)} -> ${chalk.bold(relOutput)}...`)
+            );
+          }
+
           const markdown = await readFile(inputPath, 'utf-8');
           await renderer.generatePdf(markdown, outputPath, { basePath: dirname(inputPath) });
 
@@ -329,18 +350,28 @@ program
             await utimes(outputPath, inputStat.atime, inputStat.mtime);
           }
 
-          console.log(chalk.green(`Done: ${basename(outputPath)}`));
           counts.success++;
+          if (bar) {
+            bar.update(counts.success + counts.fail, { file: basename(outputPath) });
+          } else {
+            console.log(chalk.green(`Done: ${basename(outputPath)}`));
+          }
         } catch (error: unknown) {
-          const message = error instanceof Error ? error.message : String(error);
-          console.error(chalk.red(`Failed (${relative(process.cwd(), filePath)}): ${message}`));
           counts.fail++;
+          const message = error instanceof Error ? error.message : String(error);
+          if (bar) {
+            process.stderr.write('\n');
+            console.error(chalk.red(`Failed (${relInput}): ${message}`));
+          } else {
+            console.error(chalk.red(`Failed (${relInput}): ${message}`));
+          }
         }
       };
 
       await Promise.all(files.map((filePath) => limit(() => convert(filePath))));
 
       const onSignal = async (): Promise<void> => {
+        if (bar) bar.stop();
         console.log(chalk.yellow('\nGracefully shutting down...'));
         await cleanup();
         await renderer.close();
@@ -376,6 +407,10 @@ program
         });
       } else {
         await renderer.close();
+        if (bar) {
+          bar.update(files.length, { file: 'Complete' });
+          bar.stop();
+        }
         if (counts.success) {
           console.log(chalk.green(`\nSuccessfully converted ${counts.success} file(s).`));
         }
