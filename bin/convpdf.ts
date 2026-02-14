@@ -289,9 +289,11 @@ program
       }
 
       const outputOwners = new Map<string, string>();
+      const isCaseInsensitive = process.platform === 'win32' || process.platform === 'darwin';
+
       for (const inputPath of files) {
         const outputPath = toOutputPath(inputPath, outputStrategy);
-        const key = outputPath.toLowerCase();
+        const key = isCaseInsensitive ? outputPath.toLowerCase() : outputPath;
         const existingInput = outputOwners.get(key);
         if (existingInput && existingInput !== inputPath) {
           throw new Error(
@@ -363,7 +365,7 @@ program
 
           const outputPath = toOutputPath(inputPath, outputStrategy);
           const relOutput = relative(process.cwd(), outputPath);
-          const outputKey = outputPath.toLowerCase();
+          const outputKey = isCaseInsensitive ? outputPath.toLowerCase() : outputPath;
           const outputOwner = outputOwners.get(outputKey);
           if (outputOwner && outputOwner !== inputPath) {
             throw new Error(
