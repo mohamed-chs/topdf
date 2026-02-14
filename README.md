@@ -41,6 +41,7 @@ convpdf "docs/**/*.md" --watch -o pdf/
 - `--toc-depth <depth>`: TOC depth from `1` to `6`.
 - `--no-math`: Disable MathJax.
 - `--executable-path <path>`: Custom browser executable path.
+- `--preserve-timestamp`: Preserve modification time from markdown file.
 
 ## Installation
 

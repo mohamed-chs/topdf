@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
-import { readFile, stat, mkdir } from 'fs/promises';
+import { readFile, stat, mkdir, utimes } from 'fs/promises';
 import { resolve, basename, extname, join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import chalk from 'chalk';
@@ -41,6 +41,7 @@ interface CliOptions {
   tocDepth?: number;
   math?: boolean;
   executablePath?: string;
+  preserveTimestamp?: boolean;
 }
 
 interface ConfigFile extends RendererOptions {
@@ -238,6 +239,7 @@ program
   .option('--toc-depth <depth>', 'Table of Contents depth', parseInteger)
   .option('--no-math', 'Disable MathJax')
   .option('--executable-path <path>', 'Puppeteer browser executable path')
+  .option('--preserve-timestamp', 'Preserve modification time from markdown file')
   .action(async (inputs: string[], options: CliOptions) => {
     let watcher: FSWatcher | null = null;
     const cleanup = async (): Promise<void> => {
@@ -309,6 +311,11 @@ program
           );
           const markdown = await readFile(inputPath, 'utf-8');
           await renderer.generatePdf(markdown, outputPath, { basePath: dirname(inputPath) });
+
+          if (opts.preserveTimestamp) {
+            await utimes(outputPath, inputStat.atime, inputStat.mtime);
+          }
+
           console.log(chalk.green(`Done: ${basename(outputPath)}`));
           successCount++;
         } catch (error: unknown) {

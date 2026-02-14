@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { existsSync } from 'fs';
-import { mkdtemp, readdir, rm, writeFile } from 'fs/promises';
+import { mkdtemp, readdir, rm, writeFile, stat, utimes } from 'fs/promises';
 import { execFileSync } from 'child_process';
 import { join, resolve } from 'path';
 import { tmpdir } from 'os';
@@ -186,4 +186,34 @@ describe('CLI', () => {
       await rm(dir, { recursive: true, force: true });
     }
   });
+
+  it(
+    'preserves file timestamps when --preserve-timestamp is used',
+    { timeout: 30000 },
+    async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'convpdf-cli-timestamp-'));
+      try {
+        const mdPath = join(dir, 'doc.md');
+        const pdfPath = join(dir, 'doc.pdf');
+        await writeFile(mdPath, '# Timestamp');
+
+        // Set a specific past date: 2025-01-01 00:00:00
+        const pastDate = new Date(2025, 0, 1, 0, 0, 0);
+        await utimes(mdPath, pastDate, pastDate);
+
+        runCli(['doc.md', '--preserve-timestamp'], dir);
+
+        expect(existsSync(pdfPath)).toBe(true);
+        const pdfStat = await stat(pdfPath);
+
+        // We compare timestamps in seconds to avoid sub-millisecond precision issues
+        // that might occur depending on the filesystem.
+        expect(Math.floor(pdfStat.mtime.getTime() / 1000)).toBe(
+          Math.floor(pastDate.getTime() / 1000)
+        );
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    }
+  );
 });

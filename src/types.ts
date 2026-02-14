@@ -30,6 +30,7 @@ export interface RendererOptions {
   basePath?: string;
   title?: string;
   executablePath?: string;
+  preserveTimestamp?: boolean;
 }
 
 export interface Frontmatter {
