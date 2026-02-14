@@ -30,20 +30,6 @@ convpdf "docs/**/*.md" --watch -o pdf/
 convpdf "docs/*.md" -o dist/ -j 4
 ```
 
-## Mermaid Examples
-
-Two ready-to-run Mermaid examples are available in `examples/`:
-
-- `examples/mermaid-flowchart.md`
-- `examples/mermaid-sequence.md`
-
-Generate PDFs:
-
-```bash
-convpdf examples/mermaid-flowchart.md -o examples/mermaid-flowchart.pdf
-convpdf examples/mermaid-sequence.md -o examples/mermaid-sequence.pdf
-```
-
 ## Options
 
 - `-o, --output <path>`: Output directory or file path.
@@ -67,11 +53,6 @@ convpdf examples/mermaid-sequence.md -o examples/mermaid-sequence.pdf
 ```bash
 npm install -g convpdf
 ```
-
-### Prerequisites
-
-- **Node.js**: >= 18.0.0
-- **Chromium**: Automatically downloaded by Puppeteer.
 
 ## Configuration
 
