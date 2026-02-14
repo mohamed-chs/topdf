@@ -8,6 +8,6 @@ This document tests if relative images are resolved correctly.
 
 ![Placeholder Image](https://picsum.photos/200/300)
 
-Assuming there is a `logo.png` in the same directory:
+Assuming there is a `logo.svg` in the same directory:
 
-![Local Image](./logo.png)
+![Local Image](./logo.svg)

@@ -5,7 +5,7 @@ dist
 *.jpg
 .DS_Store
 tests/output*/
-.topdf-tmp-*
+.convpdf-tmp-*
 results/
 coverage
 *.tsbuildinfo

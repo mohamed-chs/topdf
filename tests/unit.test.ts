@@ -130,6 +130,22 @@ describe('Renderer', () => {
     expect(html).toContain('href="./guide.pdf"');
   });
 
+  it('rewrites markdown links with anchors, query strings, and .markdown extension', async () => {
+    const html = await r.renderHtml(
+      '[Anchor](./guide.md#intro) [Query](./guide.md?x=1#top) [Long](./guide.markdown)'
+    );
+    expect(html).toContain('href="./guide.pdf#intro"');
+    expect(html).toContain('href="./guide.pdf?x=1#top"');
+    expect(html).toContain('href="./guide.pdf"');
+  });
+
+  it('renders markdown formatting inside link text', async () => {
+    const html = await r.renderHtml('[**Bold** _Em_](https://example.com)');
+    expect(html).toContain('<a href="https://example.com">');
+    expect(html).toContain('<strong>Bold</strong>');
+    expect(html).toContain('<em>Em</em>');
+  });
+
   it('sanitizes dangerous javascript links', async () => {
     const html = await r.renderHtml('[Unsafe](javascript:alert(1))');
     expect(html).toContain('href="#"');
@@ -173,6 +189,13 @@ describe('Renderer', () => {
     const html = await r.renderHtml('Inline math $a & b$ should stay intact.');
     expect(html).toContain('$a & b$');
     expect(html).not.toContain('$a &amp; b$');
+  });
+
+  it('replaces all TOC placeholders', async () => {
+    const html = await r.renderHtml('# One\n\n[TOC]\n\n## Two\n\n[TOC]', { toc: true });
+    const tocMatches = html.match(/class="toc"/g) ?? [];
+    expect(tocMatches.length).toBe(2);
+    expect(html).not.toContain('[[TOC_PLACEHOLDER]]');
   });
 
   it('supports custom css and fails clearly when missing', async () => {
@@ -228,6 +251,15 @@ describe('Validation', () => {
       right: '10mm',
       bottom: '15mm',
       left: '10mm'
+    });
+  });
+
+  it('accepts numeric margins by coercing to CSS lengths', () => {
+    expect(parseMargin(10)).toEqual({
+      top: '10',
+      right: '10',
+      bottom: '10',
+      left: '10'
     });
   });
 

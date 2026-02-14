@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { existsSync } from 'fs';
-import { mkdtemp, readdir, rm, writeFile, stat, utimes } from 'fs/promises';
+import { mkdtemp, mkdir, readdir, rm, writeFile, stat, utimes } from 'fs/promises';
 import { execFileSync } from 'child_process';
 import { join, resolve } from 'path';
 import { tmpdir } from 'os';
@@ -110,6 +110,9 @@ describe('CLI', () => {
   it('cleans temporary html files after conversion', { timeout: 30000 }, async () => {
     const dir = await mkdtemp(join(tmpdir(), 'convpdf-cli-cleanup-'));
     try {
+      const beforeTmpEntries = new Set(
+        (await readdir(tmpdir())).filter((entry) => entry.startsWith('convpdf-'))
+      );
       await writeFile(join(dir, 'doc.md'), '# Image\n\n![x](./pixel.png)');
       const png = Buffer.from(
         'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==',
@@ -118,8 +121,10 @@ describe('CLI', () => {
       await writeFile(join(dir, 'pixel.png'), png);
       runCli(['doc.md', '-o', 'doc.pdf'], dir);
 
-      const files = await readdir(dir);
-      expect(files.some((entry) => entry.startsWith('.convpdf-tmp-'))).toBe(false);
+      const leftoverTmpEntries = (await readdir(tmpdir())).filter(
+        (entry) => entry.startsWith('convpdf-') && !beforeTmpEntries.has(entry)
+      );
+      expect(leftoverTmpEntries).toEqual([]);
       expect(existsSync(join(dir, 'doc.pdf'))).toBe(true);
     } finally {
       await rm(dir, { recursive: true, force: true });
@@ -152,6 +157,42 @@ describe('CLI', () => {
       await writeFile(join(dir, 'doc.md'), '# A\n## B');
       const output = runCliExpectFailure(['doc.md', '--toc-depth', '0'], dir);
       expect(output).toContain('between 1 and 6');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects malformed integer values for toc depth', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'convpdf-cli-tocdepth-invalid-'));
+    try {
+      await writeFile(join(dir, 'doc.md'), '# A');
+      const output = runCliExpectFailure(['doc.md', '--toc-depth', '2abc'], dir);
+      expect(output).toContain('Invalid integer');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects malformed integer values for concurrency', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'convpdf-cli-concurrency-invalid-'));
+    try {
+      await writeFile(join(dir, 'doc.md'), '# A');
+      const output = runCliExpectFailure(['doc.md', '-j', '2abc'], dir);
+      expect(output).toContain('Invalid integer');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('fails when output directory mapping would collide', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'convpdf-cli-collision-'));
+    try {
+      await mkdir(join(dir, 'a'), { recursive: true });
+      await mkdir(join(dir, 'b'), { recursive: true });
+      await writeFile(join(dir, 'a', 'doc.md'), '# A');
+      await writeFile(join(dir, 'b', 'doc.md'), '# B');
+      const output = runCliExpectFailure(['{a,b}/doc.md', '-o', 'out'], dir);
+      expect(output).toContain('Output path collision');
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -228,7 +269,7 @@ describe('CLI', () => {
       expect(existsSync(join(dir, '2.pdf'))).toBe(true);
       expect(existsSync(join(dir, '3.pdf'))).toBe(true);
       expect(output).toContain('Converting');
-      expect(output).toContain('Done');
+      expect(output).toContain('Successfully converted 3 file(s).');
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

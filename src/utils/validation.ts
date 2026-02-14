@@ -6,8 +6,14 @@ const FORMAT_LOOKUP: ReadonlyMap<string, PaperFormat> = new Map(
   PAPER_FORMATS.map((value) => [value.toLowerCase(), value])
 );
 
-export const parseMargin = (rawMargin?: string): PDFMargin => {
-  const margin = rawMargin?.trim() || '15mm 10mm';
+export const parseMargin = (rawMargin?: string | number): PDFMargin => {
+  const marginValue =
+    typeof rawMargin === 'string'
+      ? rawMargin
+      : typeof rawMargin === 'number'
+        ? String(rawMargin)
+        : '';
+  const margin = marginValue.trim() || '15mm 10mm';
   const parts = margin.split(/\s+/).filter(Boolean);
 
   if (parts.length < 1 || parts.length > 4) {

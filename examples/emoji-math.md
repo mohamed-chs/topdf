@@ -28,7 +28,7 @@ $$
 Mixed math and emoji:
 
 $$
-	ext{Happy } \sum 	ext{ Emojis } 😃
+\text{Happy } \sum \text{ Emojis } 😃
 $$
 
 ## Page Break

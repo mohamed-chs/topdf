@@ -40,4 +40,4 @@ How about a link inside a footnote?[^link-fn]
 \[TOC] This is not a TOC (because of the backslash - wait, my renderer doesn't handle escaped [TOC] yet)
 
 ## Image with Base Path
-![Local Image](local-image.png)
+![Local Image](local-image.svg)

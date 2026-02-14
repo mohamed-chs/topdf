@@ -109,7 +109,7 @@ export class Renderer {
 
     if (tocHtml) {
       if (html.includes('[[TOC_PLACEHOLDER]]')) {
-        html = html.replace('[[TOC_PLACEHOLDER]]', tocHtml);
+        html = html.split('[[TOC_PLACEHOLDER]]').join(tocHtml);
       } else if (tocEnabled && !hasTocPlaceholder) {
         html = tocHtml + html;
       }
@@ -226,8 +226,6 @@ export class Renderer {
           opts.footerTemplate ||
           '<div style="font-size: 10px; width: 100%; text-align: center; color: #666;"><span class="pageNumber"></span> / <span class="totalPages"></span></div>'
       });
-    } catch (e: unknown) {
-      throw e;
     } finally {
       await page.close().catch(() => {});
       await unlink(tempHtmlPath).catch(() => {});

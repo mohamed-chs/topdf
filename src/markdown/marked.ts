@@ -6,12 +6,27 @@ import { gfmHeadingId } from 'marked-gfm-heading-id';
 import footnote from 'marked-footnote';
 import hljs from 'highlight.js';
 import type GithubSlugger from 'github-slugger';
-import { escapeHtml, sanitizeHref } from '../utils/html.js';
+import { sanitizeHref } from '../utils/html.js';
 import type { CustomToken } from '../types.js';
 
 const stripHtml = (value: string): string => value.replace(/<[^>]+>/g, '').trim();
 const stripMarkdownLinks = (value: string): string =>
   value.replace(/\[([^\]]+)\]\([^\)]+\)/g, '$1');
+const EXTERNAL_LINK = /^(?:[a-z][a-z\d+\-.]*:)?\/\//i;
+const splitUrlSuffix = (href: string): { path: string; suffix: string } => {
+  const hashIndex = href.indexOf('#');
+  const queryIndex = href.indexOf('?');
+  const cutIndex =
+    hashIndex === -1 ? queryIndex : queryIndex === -1 ? hashIndex : Math.min(hashIndex, queryIndex);
+  if (cutIndex === -1) return { path: href, suffix: '' };
+  return { path: href.slice(0, cutIndex), suffix: href.slice(cutIndex) };
+};
+const rewriteMarkdownHref = (href: string): string => {
+  const { path, suffix } = splitUrlSuffix(href);
+  if (/\.markdown$/i.test(path)) return `${path.replace(/\.markdown$/i, '.pdf')}${suffix}`;
+  if (/\.md$/i.test(path)) return `${path.replace(/\.md$/i, '.pdf')}${suffix}`;
+  return href;
+};
 
 export const createMarkedInstance = (slugger: GithubSlugger): Marked => {
   const marked = new Marked()
@@ -31,6 +46,13 @@ export const createMarkedInstance = (slugger: GithubSlugger): Marked => {
         const current = token as CustomToken;
         if (current.type === 'heading' && !current.id && current.text) {
           current.id = slugger.slug(stripMarkdownLinks(stripHtml(current.text)));
+        }
+        if (current.type === 'link') {
+          const link = current as unknown as Tokens.Link;
+          const href = typeof link.href === 'string' ? link.href.trim() : '';
+          if (!href) return;
+          const rewrittenHref = EXTERNAL_LINK.test(href) ? href : rewriteMarkdownHref(href);
+          link.href = sanitizeHref(rewrittenHref);
         }
       },
       extensions: [
@@ -64,26 +86,7 @@ export const createMarkedInstance = (slugger: GithubSlugger): Marked => {
             return '[[TOC_PLACEHOLDER]]';
           }
         }
-      ],
-      renderer: {
-        link(token: Tokens.Link) {
-          const href = token.href?.trim();
-          const title = token.title?.trim();
-          const text = token.text ?? '';
-
-          if (!href) return text;
-
-          const external = /^(?:[a-z][a-z\d+\-.]*:)?\/\//i.test(href);
-          const rewrittenHref =
-            !external && href.toLowerCase().endsWith('.md') ? href.replace(/\.md$/i, '.pdf') : href;
-          const safeHref = sanitizeHref(rewrittenHref);
-
-          let output = `<a href="${escapeHtml(safeHref)}"`;
-          if (title) output += ` title="${escapeHtml(title)}"`;
-          output += `>${text}</a>`;
-          return output;
-        }
-      }
+      ]
     });
 
   marked.setOptions({ gfm: true, breaks: true });

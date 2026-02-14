@@ -76,10 +76,11 @@ const program = new Command();
 const hasGlobMagic = (value: string): boolean => /[*?[\]{}()]/.test(value);
 
 const parseInteger = (value: string): number => {
-  const parsed = Number.parseInt(value, 10);
-  if (!Number.isFinite(parsed)) {
+  const normalized = value.trim();
+  if (!/^[+-]?\d+$/.test(normalized)) {
     throw new Error(`Invalid integer "${value}"`);
   }
+  const parsed = Number.parseInt(normalized, 10);
   return parsed;
 };
 
@@ -208,21 +209,32 @@ const readTemplate = async (pathValue?: string): Promise<string | null> => {
 };
 
 class ConversionQueue {
-  private pending = new Set<string>();
+  private inFlight = new Set<string>();
+  private needsRerun = new Set<string>();
 
   constructor(private limit: ReturnType<typeof pLimit>) {}
 
   enqueue(filePath: string, convert: (file: string) => Promise<void>): void {
-    if (this.pending.has(filePath)) return;
-    this.pending.add(filePath);
+    if (this.inFlight.has(filePath)) {
+      this.needsRerun.add(filePath);
+      return;
+    }
+
+    this.inFlight.add(filePath);
     void this.limit(async () => {
       try {
-        await convert(filePath);
-      } catch (error: unknown) {
-        const message = error instanceof Error ? error.message : String(error);
-        console.error(chalk.red('Queue error:'), message);
+        do {
+          this.needsRerun.delete(filePath);
+          try {
+            await convert(filePath);
+          } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : String(error);
+            console.error(chalk.red('Queue error:'), message);
+          }
+        } while (this.needsRerun.has(filePath));
       } finally {
-        this.pending.delete(filePath);
+        this.needsRerun.delete(filePath);
+        this.inFlight.delete(filePath);
       }
     });
   }
@@ -272,6 +284,22 @@ program
       const files = await resolveMarkdownFiles(describedInputs);
       if (!files.length) {
         throw new Error('No input markdown files found.');
+      }
+
+      const outputOwners = new Map<string, string>();
+      for (const inputPath of files) {
+        const outputPath = toOutputPath(inputPath, outputStrategy);
+        const key = outputPath.toLowerCase();
+        const existingInput = outputOwners.get(key);
+        if (existingInput && existingInput !== inputPath) {
+          throw new Error(
+            `Output path collision: ${relative(process.cwd(), existingInput)} and ${relative(
+              process.cwd(),
+              inputPath
+            )} both resolve to ${relative(process.cwd(), outputPath)}.`
+          );
+        }
+        outputOwners.set(key, inputPath);
       }
 
       const firstInput = describedInputs[0];
@@ -332,6 +360,14 @@ program
 
           const outputPath = toOutputPath(inputPath, outputStrategy);
           const relOutput = relative(process.cwd(), outputPath);
+          const outputKey = outputPath.toLowerCase();
+          const outputOwner = outputOwners.get(outputKey);
+          if (outputOwner && outputOwner !== inputPath) {
+            throw new Error(
+              `Output path collision: ${relative(process.cwd(), outputOwner)} and ${relInput} both resolve to ${relOutput}.`
+            );
+          }
+          outputOwners.set(outputKey, inputPath);
 
           await mkdir(dirname(outputPath), { recursive: true });
 
