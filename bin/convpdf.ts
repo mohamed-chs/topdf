@@ -76,6 +76,37 @@ interface InputDescriptor {
 const program = new Command();
 const hasGlobMagic = (value: string): boolean => /[*?[\]{}()]/.test(value);
 
+const getGlobParent = (pattern: string): string => {
+  let p = pattern;
+  while (p.endsWith('/') || p.endsWith('\\')) p = p.slice(0, -1);
+  while (hasGlobMagic(p) && p !== dirname(p)) {
+    p = dirname(p);
+  }
+  return resolve(p);
+};
+
+const findBasePathForFile = (absoluteFilePath: string, inputs: InputDescriptor[]): string => {
+  const parents = inputs.map((input) => {
+    if (input.isDirectory) return input.absolute;
+    if (input.hasGlobMagic) return getGlobParent(input.raw);
+    return dirname(input.absolute);
+  });
+
+  const uniqueParents = [...new Set(parents.map((p) => resolve(p)))].sort(
+    (a, b) => b.length - a.length
+  );
+
+  for (const parent of uniqueParents) {
+    const rel = relative(parent, absoluteFilePath);
+    if (rel && !rel.startsWith('..') && !/^(?:[a-zA-Z]:)?[/\\]/.test(rel)) {
+      return parent;
+    }
+    if (rel === '') return parent;
+  }
+
+  return dirname(absoluteFilePath);
+};
+
 const parseInteger = (value: string): number => {
   const normalized = value.trim();
   if (!/^[+-]?\d+$/.test(normalized)) {
@@ -187,7 +218,7 @@ const resolveOutputStrategy = (
   return { mode: 'single-file', targetPath: absolute };
 };
 
-const toOutputPath = (inputPath: string, strategy: OutputStrategy): string => {
+const toOutputPath = (inputPath: string, strategy: OutputStrategy, basePath?: string): string => {
   if (strategy.mode === 'adjacent') {
     return join(dirname(inputPath), `${basename(inputPath, extname(inputPath))}.pdf`);
   }
@@ -196,6 +227,13 @@ const toOutputPath = (inputPath: string, strategy: OutputStrategy): string => {
     return strategy.targetPath;
   }
   if (!strategy.targetPath) throw new Error('Output directory path is missing');
+
+  if (basePath) {
+    const relPath = relative(basePath, inputPath);
+    const relPathWithoutExt = join(dirname(relPath), basename(relPath, extname(relPath)));
+    return join(strategy.targetPath, `${relPathWithoutExt}.pdf`);
+  }
+
   return join(strategy.targetPath, `${basename(inputPath, extname(inputPath))}.pdf`);
 };
 
@@ -292,7 +330,8 @@ program
       const isCaseInsensitive = process.platform === 'win32' || process.platform === 'darwin';
 
       for (const inputPath of files) {
-        const outputPath = toOutputPath(inputPath, outputStrategy);
+        const basePath = findBasePathForFile(inputPath, describedInputs);
+        const outputPath = toOutputPath(inputPath, outputStrategy, basePath);
         const key = isCaseInsensitive ? outputPath.toLowerCase() : outputPath;
         const existingInput = outputOwners.get(key);
         if (existingInput && existingInput !== inputPath) {
@@ -363,7 +402,11 @@ program
             return;
           }
 
-          const outputPath = toOutputPath(inputPath, outputStrategy);
+          const outputPath = toOutputPath(
+            inputPath,
+            outputStrategy,
+            findBasePathForFile(inputPath, describedInputs)
+          );
           const relOutput = relative(process.cwd(), outputPath);
           const outputKey = isCaseInsensitive ? outputPath.toLowerCase() : outputPath;
           const outputOwner = outputOwners.get(outputKey);

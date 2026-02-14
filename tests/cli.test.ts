@@ -202,8 +202,28 @@ describe('CLI', () => {
       await mkdir(join(dir, 'b'), { recursive: true });
       await writeFile(join(dir, 'a', 'doc.md'), '# A');
       await writeFile(join(dir, 'b', 'doc.md'), '# B');
-      const output = runCliExpectFailure(['{a,b}/doc.md', '-o', 'out'], dir);
+      // Passing directories will NOT collide because they mirror: out/a/doc.pdf, out/b/doc.pdf
+      // But passing the files directly with their containing dirs as bases (which is what happens if you pass them as files)
+      // MIGHT collide if the base ends up being the parent of doc.md.
+      // Actually, to force a collision now, we'd need them to have the same relative path from their respective bases.
+      // E.g. base1="a", file1="a/doc.md" -> relative="doc.md"
+      //      base2="b", file2="b/doc.md" -> relative="doc.md"
+      const output = runCliExpectFailure(['a/doc.md', 'b/doc.md', '-o', 'out'], dir);
       expect(output).toContain('Output path collision');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('preserves directory structure in output directory', { timeout: 30000 }, async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'convpdf-cli-mirror-'));
+    try {
+      await mkdir(join(dir, 'docs', 'sub'), { recursive: true });
+      await writeFile(join(dir, 'docs', 'a.md'), '# A');
+      await writeFile(join(dir, 'docs', 'sub', 'b.md'), '# B');
+      runCli(['docs', '-o', 'out'], dir);
+      expect(existsSync(join(dir, 'out', 'a.pdf'))).toBe(true);
+      expect(existsSync(join(dir, 'out', 'sub', 'b.pdf'))).toBe(true);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

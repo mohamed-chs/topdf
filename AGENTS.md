@@ -23,7 +23,7 @@
 - **Developer UX**: A powerful CLI supports glob expansion, watch mode, and hierarchical configuration (`.convpdfrc*`), catering to both quick one-offs and automated CI/CD workflows. Now includes `-j, --concurrency` for high-throughput batch processing.
 
 ## Codebase Overview
-- **`bin/convpdf.ts`**: The **CLI ENTRY POINT**. Responsible for command-line argument parsing (Commander), config loading (`.convpdfrc*`), deterministic input expansion, output strategy validation, and serialized watch-mode conversion.
+- **`bin/convpdf.ts`**: The **CLI ENTRY POINT**. Responsible for command-line argument parsing (Commander), config loading (`.convpdfrc*`), deterministic input expansion, output strategy validation (including directory structure mirroring for batch conversions), and serialized watch-mode conversion.
 - Supports runtime rendering toggles such as `--no-math` and `--no-mermaid` so heavy browser-side renderers can be disabled explicitly.
 - **`src/renderer.ts`**: The **ORCHESTRATOR**. Coordinates markdown parsing, HTML assembly, browser rendering, and PDF generation.
 - **`src/markdown/`**: Markdown pipeline modules:
