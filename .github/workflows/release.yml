@@ -15,7 +15,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  group: release-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -49,9 +49,16 @@ jobs:
           set -euo pipefail
 
           if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
-            RELEASE_TAG="${{ inputs.tag }}"
+            RELEASE_TAG="${{ github.event.inputs.tag }}"
           else
             RELEASE_TAG="${GITHUB_REF_NAME}"
+          fi
+
+          RELEASE_TAG="${RELEASE_TAG#"${RELEASE_TAG%%[![:space:]]*}"}"
+          RELEASE_TAG="${RELEASE_TAG%"${RELEASE_TAG##*[![:space:]]}"}"
+          if [[ -z "${RELEASE_TAG}" ]]; then
+            echo "Release tag cannot be empty." >&2
+            exit 1
           fi
 
           if [[ ! "${RELEASE_TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then

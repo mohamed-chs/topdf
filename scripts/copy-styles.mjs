@@ -4,11 +4,19 @@ import { resolve, join } from 'path';
 const sourceDir = resolve('src/styles');
 const destinationDir = resolve('dist/src/styles');
 
-await mkdir(destinationDir, { recursive: true });
-const entries = await readdir(sourceDir, { withFileTypes: true });
+try {
+  await mkdir(destinationDir, { recursive: true });
+  const entries = await readdir(sourceDir, { withFileTypes: true });
+  const cssFiles = entries.filter((entry) => entry.isFile() && entry.name.endsWith('.css'));
 
-await Promise.all(
-  entries
-    .filter((entry) => entry.isFile() && entry.name.endsWith('.css'))
-    .map((entry) => copyFile(join(sourceDir, entry.name), join(destinationDir, entry.name)))
-);
+  if (!cssFiles.length) {
+    throw new Error(`No CSS files found in "${sourceDir}".`);
+  }
+
+  await Promise.all(
+    cssFiles.map((entry) => copyFile(join(sourceDir, entry.name), join(destinationDir, entry.name)))
+  );
+} catch (error) {
+  const message = error instanceof Error ? error.message : String(error);
+  throw new Error(`Failed to copy style assets: ${message}`);
+}
