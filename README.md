@@ -25,12 +25,16 @@ convpdf input.md --css styles.css --toc
 
 # Watch mode
 convpdf "docs/**/*.md" --watch -o pdf/
+
+# Batch conversion with concurrency
+convpdf "docs/*.md" -o dist/ -j 4
 ```
 
 ## Options
 
 - `-o, --output <path>`: Output directory or file path.
 - `-w, --watch`: Watch for changes.
+- `-j, --concurrency <number>`: Number of concurrent conversions (default: 1).
 - `-c, --css <path>`: Custom CSS file.
 - `-t, --template <path>`: Custom HTML template.
 - `-m, --margin <margin>`: Page margin (default: 20mm).

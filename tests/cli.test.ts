@@ -216,4 +216,21 @@ describe('CLI', () => {
       }
     }
   );
+
+  it('converts multiple files concurrently with -j', { timeout: 60000 }, async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'convpdf-cli-concurrency-'));
+    try {
+      await writeFile(join(dir, '1.md'), '# 1');
+      await writeFile(join(dir, '2.md'), '# 2');
+      await writeFile(join(dir, '3.md'), '# 3');
+      const output = runCli(['*.md', '-j', '2'], dir);
+      expect(existsSync(join(dir, '1.pdf'))).toBe(true);
+      expect(existsSync(join(dir, '2.pdf'))).toBe(true);
+      expect(existsSync(join(dir, '3.pdf'))).toBe(true);
+      expect(output).toContain('Converting');
+      expect(output).toContain('Done');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });

@@ -7,6 +7,7 @@ import chalk from 'chalk';
 import { glob } from 'glob';
 import chokidar, { type FSWatcher } from 'chokidar';
 import yaml from 'js-yaml';
+import pLimit from 'p-limit';
 import { Renderer } from '../src/renderer.js';
 import type { RendererOptions } from '../src/types.js';
 import { normalizeTocDepth } from '../src/utils/validation.js';
@@ -42,6 +43,7 @@ interface CliOptions {
   math?: boolean;
   executablePath?: string;
   preserveTimestamp?: boolean;
+  concurrency?: number;
 }
 
 interface ConfigFile extends RendererOptions {
@@ -203,22 +205,23 @@ const readTemplate = async (pathValue?: string): Promise<string | null> => {
 };
 
 class ConversionQueue {
-  private chain: Promise<void> = Promise.resolve();
   private pending = new Set<string>();
+
+  constructor(private limit: ReturnType<typeof pLimit>) {}
 
   enqueue(filePath: string, convert: (file: string) => Promise<void>): void {
     if (this.pending.has(filePath)) return;
     this.pending.add(filePath);
-    this.chain = this.chain
-      .then(async () => {
-        this.pending.delete(filePath);
+    void this.limit(async () => {
+      try {
         await convert(filePath);
-      })
-      .catch((error: unknown) => {
-        this.pending.delete(filePath);
+      } catch (error: unknown) {
         const message = error instanceof Error ? error.message : String(error);
         console.error(chalk.red('Queue error:'), message);
-      });
+      } finally {
+        this.pending.delete(filePath);
+      }
+    });
   }
 }
 
@@ -240,6 +243,7 @@ program
   .option('--no-math', 'Disable MathJax')
   .option('--executable-path <path>', 'Puppeteer browser executable path')
   .option('--preserve-timestamp', 'Preserve modification time from markdown file')
+  .option('-j, --concurrency <number>', 'Number of concurrent conversions', parseInteger, 1)
   .action(async (inputs: string[], options: CliOptions) => {
     let watcher: FSWatcher | null = null;
     const cleanup = async (): Promise<void> => {
@@ -256,6 +260,9 @@ program
       if (opts.tocDepth !== undefined) {
         opts.tocDepth = normalizeTocDepth(opts.tocDepth);
       }
+
+      const concurrency = Math.max(1, opts.concurrency ?? 1);
+      const limit = pLimit(concurrency);
 
       const describedInputs = await describeInputs(inputs);
       const outputStrategy = resolveOutputStrategy(opts.output, describedInputs);
@@ -286,8 +293,7 @@ program
         executablePath: opts.executablePath
       });
 
-      let successCount = 0;
-      let failCount = 0;
+      const counts = { success: 0, fail: 0 };
 
       const convert = async (filePath: string): Promise<void> => {
         try {
@@ -317,17 +323,15 @@ program
           }
 
           console.log(chalk.green(`Done: ${basename(outputPath)}`));
-          successCount++;
+          counts.success++;
         } catch (error: unknown) {
           const message = error instanceof Error ? error.message : String(error);
           console.error(chalk.red(`Failed (${filePath}): ${message}`));
-          failCount++;
+          counts.fail++;
         }
       };
 
-      for (const filePath of files) {
-        await convert(filePath);
-      }
+      await Promise.all(files.map((filePath) => limit(() => convert(filePath))));
 
       const onSignal = async (): Promise<void> => {
         console.log(chalk.yellow('\nGracefully shutting down...'));
@@ -344,7 +348,7 @@ program
 
       if (opts.watch) {
         console.log(chalk.yellow('\nWatching for changes... (Press Ctrl+C to stop)'));
-        const queue = new ConversionQueue();
+        const queue = new ConversionQueue(limit);
         watcher = chokidar.watch(inputs, {
           ignored: /(^|[\/\\])\../,
           persistent: true,
@@ -362,11 +366,11 @@ program
         });
       } else {
         await renderer.close();
-        if (successCount) {
-          console.log(chalk.green(`\nSuccessfully converted ${successCount} file(s).`));
+        if (counts.success) {
+          console.log(chalk.green(`\nSuccessfully converted ${counts.success} file(s).`));
         }
-        if (failCount) {
-          throw new Error(`Failed to convert ${failCount} file(s).`);
+        if (counts.fail) {
+          throw new Error(`Failed to convert ${counts.fail} file(s).`);
         }
       }
     } catch (error: unknown) {

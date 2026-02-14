@@ -1,6 +1,6 @@
 import type { Token } from 'marked';
 import puppeteer from 'puppeteer';
-import type { Browser, Page } from 'puppeteer';
+import type { Browser } from 'puppeteer';
 import { readFile, writeFile, unlink, rm, mkdtemp } from 'fs/promises';
 import { join, dirname, resolve } from 'path';
 import { tmpdir } from 'os';
@@ -21,14 +21,17 @@ const stylesPromise = Promise.all([read('styles/default.css'), read('styles/gith
 export class Renderer {
   private options: RendererOptions;
   private browser: Browser | null = null;
-  private page: Page | null = null;
+  private initializing: Promise<void> | null = null;
 
   constructor(options: RendererOptions = {}) {
     this.options = { margin: '15mm 10mm', format: 'A4', ...options };
   }
 
   async init(): Promise<void> {
-    if (!this.browser) {
+    if (this.browser) return;
+    if (this.initializing) return this.initializing;
+
+    this.initializing = (async () => {
       try {
         this.browser = await puppeteer.launch({
           headless: true,
@@ -42,15 +45,19 @@ export class Renderer {
             'See the Troubleshooting section in README for common issues and solutions:\n' +
             'https://github.com/mohamed-chs/convpdf#troubleshooting'
         );
+      } finally {
+        this.initializing = null;
       }
-      this.page = await this.browser.newPage();
-    }
+    })();
+
+    return this.initializing;
   }
 
   async close(): Promise<void> {
-    if (this.page) await this.page.close();
-    if (this.browser) await this.browser.close();
-    this.page = this.browser = null;
+    if (this.browser) {
+      await this.browser.close();
+      this.browser = null;
+    }
   }
 
   parseFrontmatter(markdown: string): { data: Frontmatter; content: string } {
@@ -140,20 +147,21 @@ export class Renderer {
     const opts = { ...this.options, ...overrides };
     const html = await this.renderHtml(md, opts);
     await this.init();
-    if (!this.page) throw new Error('Browser page not initialized');
+    if (!this.browser) throw new Error('Browser not initialized');
 
+    const page = await this.browser.newPage();
     const tempDir = await mkdtemp(join(tmpdir(), 'convpdf-'));
     const tempHtmlPath = join(tempDir, 'document.html');
     await writeFile(tempHtmlPath, html, 'utf-8');
 
     try {
-      await this.page.emulateMediaType('print');
+      await page.emulateMediaType('print');
 
-      await this.page.goto(pathToFileURL(tempHtmlPath).href, {
+      await page.goto(pathToFileURL(tempHtmlPath).href, {
         waitUntil: 'networkidle0',
         timeout: 60000
       });
-      await this.page.evaluate(async () => {
+      await page.evaluate(async () => {
         const images = Array.from(document.querySelectorAll('img'));
         await Promise.all(
           images.map((img) => {
@@ -207,7 +215,7 @@ export class Renderer {
       const format = normalizePaperFormat(
         typeof opts.format === 'string' ? opts.format : undefined
       );
-      await this.page.pdf({
+      await page.pdf({
         path: outputPath,
         format,
         printBackground: true,
@@ -219,11 +227,9 @@ export class Renderer {
           '<div style="font-size: 10px; width: 100%; text-align: center; color: #666;"><span class="pageNumber"></span> / <span class="totalPages"></span></div>'
       });
     } catch (e: unknown) {
-      if (e instanceof Error && e.message.includes('Session closed')) {
-        this.page = null;
-      }
       throw e;
     } finally {
+      await page.close().catch(() => {});
       await unlink(tempHtmlPath).catch(() => {});
       await rm(tempDir, { recursive: true, force: true }).catch(() => {});
     }

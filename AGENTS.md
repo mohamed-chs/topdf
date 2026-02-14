@@ -18,8 +18,9 @@
 
 - **Fidelity-First Pipeline**: Markdown is transformed into a modern HTML document via a structured pipeline: Frontmatter extraction -> Math protection -> Marked tokenization -> HTML templating.
 - **Headless Precision**: Uses Puppeteer to render the final HTML, ensuring complex layouts, MathJax, and syntax highlighting are captured exactly as intended.
+- **Concurrency & Parallelism**: Employs a **Page Pooling** strategy where a single browser instance is shared across multiple concurrent conversion tasks. Each task gets its own `Page`, ensuring isolation and resource efficiency.
 - **Modular Design**: The system is partitioned into independent domains (Markdown, HTML, Styles, Utils) orchestrated by a central `Renderer`. This makes it easy to swap parsing logic, inject custom styles, or use it as a library.
-- **Developer UX**: A powerful CLI supports glob expansion, watch mode, and hierarchical configuration (`.convpdfrc*`), catering to both quick one-offs and automated CI/CD workflows.
+- **Developer UX**: A powerful CLI supports glob expansion, watch mode, and hierarchical configuration (`.convpdfrc*`), catering to both quick one-offs and automated CI/CD workflows. Now includes `-j, --concurrency` for high-throughput batch processing.
 
 ## Codebase Overview
 - **`bin/convpdf.ts`**: The **CLI ENTRY POINT**. Responsible for command-line argument parsing (Commander), config loading (`.convpdfrc*`), deterministic input expansion, output strategy validation, and serialized watch-mode conversion.
