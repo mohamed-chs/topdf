@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
 import { readFile, stat, mkdir, utimes } from 'fs/promises';
-import { resolve, basename, extname, join, dirname } from 'path';
+import { resolve, basename, extname, join, dirname, relative } from 'path';
 import { fileURLToPath } from 'url';
 import chalk from 'chalk';
 import { glob } from 'glob';
@@ -106,7 +106,9 @@ const loadConfig = async (): Promise<LoadedConfig> => {
       if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
         continue;
       }
-      throw new Error(`Failed to parse config "${configPath}": ${message}`);
+      throw new Error(
+        `Failed to parse config "${relative(process.cwd(), configPath)}": ${message}`
+      );
     }
   }
   return { values: {}, sourcePath: null };
@@ -253,7 +255,7 @@ program
     try {
       const config = await loadConfig();
       if (config.sourcePath) {
-        console.log(chalk.gray(`Using config: ${config.sourcePath}`));
+        console.log(chalk.gray(`Using config: ${relative(process.cwd(), config.sourcePath)}`));
       }
 
       const opts = { ...config.values, ...options };
@@ -301,20 +303,25 @@ program
           const inputStat = await stat(inputPath);
           if (!inputStat.isFile()) return;
 
+          const relInput = relative(process.cwd(), inputPath);
+
           if (outputStrategy.mode === 'single-file' && singleInput && inputPath !== singleInput) {
             console.log(
               chalk.yellow(
-                `Skipping ${inputPath}: output is configured as a single PDF file for ${singleInput}.`
+                `Skipping ${relInput}: output is configured as a single PDF file for ${relative(
+                  process.cwd(),
+                  singleInput
+                )}.`
               )
             );
             return;
           }
 
           const outputPath = toOutputPath(inputPath, outputStrategy);
+          const relOutput = relative(process.cwd(), outputPath);
+
           await mkdir(dirname(outputPath), { recursive: true });
-          console.log(
-            chalk.blue(`Converting ${chalk.bold(inputPath)} -> ${chalk.bold(outputPath)}...`)
-          );
+          console.log(chalk.blue(`Converting ${chalk.bold(relInput)} -> ${chalk.bold(relOutput)}...`));
           const markdown = await readFile(inputPath, 'utf-8');
           await renderer.generatePdf(markdown, outputPath, { basePath: dirname(inputPath) });
 
@@ -326,7 +333,7 @@ program
           counts.success++;
         } catch (error: unknown) {
           const message = error instanceof Error ? error.message : String(error);
-          console.error(chalk.red(`Failed (${filePath}): ${message}`));
+          console.error(chalk.red(`Failed (${relative(process.cwd(), filePath)}): ${message}`));
           counts.fail++;
         }
       };
@@ -359,7 +366,10 @@ program
           const absoluteChangedPath = resolve(changedPath);
           console.log(
             chalk.cyan(
-              `\n${event === 'add' ? 'New file' : 'Change'} detected: ${absoluteChangedPath}`
+              `\n${event === 'add' ? 'New file' : 'Change'} detected: ${relative(
+                process.cwd(),
+                absoluteChangedPath
+              )}`
             )
           );
           queue.enqueue(absoluteChangedPath, convert);
