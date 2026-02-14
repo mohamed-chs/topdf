@@ -51,6 +51,7 @@
 
 ### 2. Operational Rigor
 - **CRITICAL MINDSET**: Do not assume the codebase is perfect. Be alert for missing logic, edge cases, or features that appear complete but are fragile.
+- **IGNORE BACKWARD COMPATIBILITY**: Prioritize codebase health over legacy support. Perform complete overhauls and rewrites where necessary to improve architecture and quality. Only respect backward compatibility if explicitly and specifically requested.
 - **COHESION PASS**: After any change, perform a targeted sanity sweep to ensure the new behavior is **fully wired** across configs, CLI options, defaults, tests, and documentation.
 - **VERIFICATION**: Always run the full quality gate (`npm run ci`) and fix all issues—including linting, formatting, type errors, and tests—before considering a task finished.
   - For release pipeline edits, also validate workflow logic against the local release helper flow (`npm version` + pushed tags) so tag-triggered automation remains deterministic.
