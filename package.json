@@ -1,6 +1,6 @@
 {
   "name": "convpdf",
-  "version": "0.2.8",
+  "version": "0.3.0",
   "license": "MIT",
   "description": "Convert Markdown to high-quality PDF",
   "type": "module",
