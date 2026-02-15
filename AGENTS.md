@@ -39,7 +39,14 @@
 - **`src/types.ts`**: The **TYPE DEFINITIONS**. Contains interfaces and types used throughout the project to ensure strict type safety.
 - **`src/styles/`**: Contains the **DESIGN DNA**. `default.css` provides the professional document layout, and `github.css` handles syntax highlighting themes.
 - **`tests/`**: The **QUALITY GATE**. Consolidated into `unit.test.ts` (logic/parsing) and `cli.test.ts` (integration/E2E).
-- **`examples/`**: Real-world scenarios, edge cases, and feature demonstrations used for **BOTH DOCUMENTATION AND FIDELITY TESTING.**
+- **`examples/`**: Canonical real-world scenarios and fidelity probes used for **BOTH DOCUMENTATION AND REGRESSION TESTING**.
+  - The exhaustive suite lives directly under `examples/`. Keep scenarios focused and non-overlapping:
+    - `core-features.md`: baseline markdown features, emoji, wrapping stress, page breaks, and cross-file navigation.
+    - `math-heavy.md`: all advanced MathJax stress cases (inline/display/matrix/alignment/nesting/escaping).
+    - `mermaid-diagrams.md`: consolidated flowchart + sequence diagram coverage.
+    - Remaining files validate targeted concerns (TOC depth/collisions, edge cases, custom headers/footers, relative assets, syntax breadth, advanced styles, config-local resolution).
+  - `examples/pro-showcase/` is a polished end-to-end demo with custom templates and styling.
+  - Prefer extending existing canonical files over adding new top-level `examples/*.md` unless a new scenario cannot fit without reducing clarity.
 - **`.github/workflows/`**: CI/CD automation:
   - `ci.yml` runs a multi-version quality gate (typecheck/lint/format/build/test) plus package smoke checks (`npm pack --dry-run` and CLI help validation)
   - `release.yml` validates release tags against `package.json`, verifies ancestry from `main`, publishes via npm trusted publishing (`id-token` + provenance), and creates/updates GitHub Releases with generated notes
