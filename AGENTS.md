@@ -39,6 +39,9 @@
 - **`src/types.ts`**: The **TYPE DEFINITIONS**. Contains interfaces and types used throughout the project to ensure strict type safety.
 - **`src/styles/`**: Contains the **DESIGN DNA**. `default.css` provides the professional document layout, and `github.css` handles syntax highlighting themes.
 - **`tests/`**: The **QUALITY GATE**. Consolidated into `unit.test.ts` (logic/parsing) and `cli.test.ts` (integration/E2E).
+  - CLI tests run in a shared suite-scoped temp root with per-case subdirectories; keep this pattern to reduce filesystem churn while preserving isolation.
+  - Any test asserting temp-file cleanup must scope `TMPDIR`/`TMP`/`TEMP` to a case-local directory instead of inspecting global OS temp state.
+  - Keep CLI E2E execution deterministic (`describe.sequential`, color-disabled output assertions, explicit child-process timeout).
 - **`examples/`**: Canonical real-world scenarios and fidelity probes used for **BOTH DOCUMENTATION AND REGRESSION TESTING**.
   - The exhaustive suite lives directly under `examples/`. Keep scenarios focused and non-overlapping:
     - `core-features.md`: baseline markdown features, emoji, wrapping stress, page breaks, and cross-file navigation.
@@ -75,6 +78,7 @@
     - **INTEGRATION TESTS**: Verify the interaction between the Renderer and the file system/Puppeteer.
     - **END-TO-END (E2E) TESTS**: Verify the **FULL CLI FLOW** from Markdown input to PDF output. Tests run against the compiled `dist/` output for E2E and source for units.
 - **REGRESSION TESTING**: Run `npm run build && npm test` before/after substantial behavior changes.
+- **DETERMINISTIC I/O**: Prefer case-local temp directories and deterministic output checks; avoid assertions that depend on ambient machine state (global `/tmp`, unrelated concurrent processes, terminal color mode).
 
 ## Coding Standards
 - **TYPESCRIPT & ESM**: Strict adherence to **TYPESCRIPT** and **ES MODULES.**

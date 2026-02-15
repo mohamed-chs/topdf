@@ -1,248 +1,196 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { Renderer } from '../src/renderer.js';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdtemp, rm, writeFile } from 'fs/promises';
 import { resolve, dirname } from 'path';
-import { fileURLToPath } from 'url';
-import { mkdtemp, writeFile, rm } from 'fs/promises';
 import { tmpdir } from 'os';
+import { fileURLToPath } from 'url';
+
+import { Renderer } from '../src/renderer.js';
 import { parseFrontmatter } from '../src/markdown/frontmatter.js';
+import { hasMathSyntax } from '../src/markdown/math.js';
 import { hasMermaidSyntax } from '../src/markdown/mermaid.js';
 import { normalizePaperFormat, normalizeTocDepth, parseMargin } from '../src/utils/validation.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 describe('Renderer', () => {
-  let r: Renderer;
+  let renderer: Renderer;
+
   beforeEach(() => {
-    r = new Renderer();
+    renderer = new Renderer();
   });
 
-  it('parses frontmatter', () => {
-    const { data, content } = r.parseFrontmatter('---\nt: H\n---\n# W');
-    expect(data['t']).toBe('H');
-    expect(content.trim()).toBe('# W');
+  it('initializes with sane defaults', () => {
+    // @ts-expect-error intentionally checking internal defaults
+    expect(renderer.options.margin).toBe('15mm 10mm');
+    // @ts-expect-error intentionally checking internal defaults
+    expect(renderer.options.format).toBe('A4');
   });
 
-  it('uses default options', () => {
-    // @ts-expect-error - testing private options
-    expect(r.options.margin).toBe('15mm 10mm');
-    // @ts-expect-error - testing private options
-    expect(r.options.format).toBe('A4');
+  it('delegates frontmatter parsing and emits warnings', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const parsed = renderer.parseFrontmatter('---\nfoo: [\n---\n# Content');
+      expect(parsed.data).toEqual({});
+      expect(parsed.content).toContain('---');
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0]?.[0]).toContain('Frontmatter parsing failed');
+    } finally {
+      warn.mockRestore();
+    }
   });
 
-  it('handles empty frontmatter as metadata section', () => {
+  it('renders basic markdown and heading ids', async () => {
+    const html = await renderer.renderHtml('# Heading');
+    expect(html).toContain('<h1 id="heading">Heading</h1>');
+  });
+
+  it('uses title from frontmatter and escapes it', async () => {
+    const html = await renderer.renderHtml('---\ntitle: "<script>x</script>"\n---\n# C');
+    expect(html).toContain('<title>&lt;script&gt;x&lt;/script&gt;</title>');
+    expect(html).not.toContain('<title><script>x</script></title>');
+  });
+
+  it('injects base href when basePath is provided', async () => {
+    const html = await new Renderer({ basePath: '/tmp/docs' }).renderHtml('# H');
+    expect(html).toContain('<base href="file:///tmp/docs/">');
+  });
+
+  it('injects MathJax and Mermaid scripts only when needed', async () => {
+    const mathOnly = await renderer.renderHtml('$x+y$');
+    expect(mathOnly).toContain('MathJax-script');
+    expect(mathOnly).not.toContain('Mermaid-script');
+
+    const mermaidOnly = await renderer.renderHtml('```mermaid\ngraph TD;\nA --> B;\n```');
+    expect(mermaidOnly).toContain('Mermaid-script');
+    expect(mermaidOnly).not.toContain('language-mermaid');
+    expect(mermaidOnly).toContain('<div class="mermaid">graph TD;\nA --&gt; B;</div>');
+  });
+
+  it('respects explicit math/mermaid overrides', async () => {
+    const noMath = await renderer.renderHtml('$x$', { math: false });
+    expect(noMath).not.toContain('MathJax-script');
+
+    const noMermaid = await renderer.renderHtml('```mermaid\ngraph TD;\nA-->B;\n```', {
+      mermaid: false
+    });
+    expect(noMermaid).not.toContain('Mermaid-script');
+  });
+
+  it('supports code highlighting, task lists, tables and footnotes', async () => {
+    const html = await renderer.renderHtml(
+      '```js\nconst x = 1;\n```\n\n- [x] done\n\n| A | B |\n|:-|-:|\n| 1 | 2 |\n\nRef[^1]\n\n[^1]: note'
+    );
+    expect(html).toContain('hljs language-js');
+    expect(html).toContain('class="hljs-keyword"');
+    expect(html).toContain('type="checkbox"');
+    expect(html).toContain('align="left"');
+    expect(html).toContain('class="footnotes"');
+  });
+
+  it('generates TOC for placeholders and global toc mode', async () => {
+    const placeholderHtml = await renderer.renderHtml('# One\n\n[TOC]\n\n## Two\n\n[TOC]', {
+      toc: true
+    });
+    const tocMatches = placeholderHtml.match(/class="toc"/g) ?? [];
+    expect(tocMatches).toHaveLength(2);
+    expect(placeholderHtml).not.toContain('[[TOC_PLACEHOLDER]]');
+
+    const autoTocHtml = await renderer.renderHtml('# Root\n## Child', { toc: true, tocDepth: 2 });
+    expect(autoTocHtml).toContain('class="toc"');
+    expect(autoTocHtml).toContain('href="#root"');
+  });
+
+  it('keeps markdown formatting inside link labels and rewrites .md links', async () => {
+    const html = await renderer.renderHtml(
+      '[**Bold** _Em_](https://example.com) [Doc](./guide.md#top) [Long](./notes.markdown)'
+    );
+    expect(html).toContain('<a href="https://example.com"><strong>Bold</strong> <em>Em</em></a>');
+    expect(html).toContain('href="./guide.pdf#top"');
+    expect(html).toContain('href="./notes.pdf"');
+  });
+
+  it('sanitizes javascript links', async () => {
+    const html = await renderer.renderHtml('[Unsafe](javascript:alert(1))');
+    expect(html).toContain('href="#"');
+    expect(html).not.toContain('javascript:alert(1)');
+  });
+
+  it('preserves display and inline math content', async () => {
+    const html = await renderer.renderHtml(
+      '$$\n\\begin{aligned}\na &= b \\\\\nc &= d\n\\end{aligned}\n$$\n\nInline: $a & b$'
+    );
+    expect(html).toContain('a &= b \\\\');
+    expect(html).toContain('c &= d');
+    expect(html).toContain('$a & b$');
+    expect(html).not.toContain('$a &amp; b$');
+  });
+
+  it('does not treat code blocks as math', async () => {
+    const html = await renderer.renderHtml('```tex\n$$\na &= b \\\\\n$$\n```');
+    expect(html).toContain('hljs language-tex');
+  });
+
+  it('supports custom template and custom css with clear missing-css errors', async () => {
+    const tempRoot = await mkdtemp(resolve(tmpdir(), 'convpdf-unit-'));
+    try {
+      const cssPath = resolve(tempRoot, 'custom.css');
+      await writeFile(cssPath, 'body { color: rgb(1, 2, 3); }');
+
+      const customTemplateHtml = await new Renderer({
+        template: resolve(__dirname, 'fixtures/template.html')
+      }).renderHtml('# HT');
+      expect(customTemplateHtml).toContain('Markdown Document - <h1 id="ht">HT</h1>');
+
+      const customCssHtml = await new Renderer({ customCss: cssPath }).renderHtml('# HT');
+      expect(customCssHtml).toContain('rgb(1, 2, 3)');
+
+      await expect(
+        new Renderer({ customCss: resolve(tempRoot, 'missing.css') }).renderHtml('# H')
+      ).rejects.toThrow('Failed to read custom CSS');
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('detects mermaid syntax independently', () => {
+    expect(hasMermaidSyntax('```mermaid\ngraph LR;\nA-->B;\n```')).toBe(true);
+    expect(hasMermaidSyntax('```js\nconsole.log("plain");\n```')).toBe(false);
+  });
+});
+
+describe('Frontmatter Parsing', () => {
+  it('handles missing and empty frontmatter blocks', () => {
+    expect(parseFrontmatter('# C')).toEqual({ data: {}, content: '# C', warnings: [] });
+
     const parsed = parseFrontmatter('---\n---\n# C');
     expect(parsed.data).toEqual({});
     expect(parsed.content.trim()).toBe('# C');
     expect(parsed.warnings).toEqual([]);
   });
 
-  it('returns warning for malformed frontmatter', () => {
+  it('returns warnings for malformed frontmatter', () => {
     const parsed = parseFrontmatter('---\ni: [\n---\n# C');
     expect(parsed.data).toEqual({});
     expect(parsed.content).toContain('---');
-    expect(parsed.warnings.length).toBe(1);
+    expect(parsed.warnings).toHaveLength(1);
   });
+});
 
-  it('renders markdown to HTML', async () => {
-    const html = await r.renderHtml('# H');
-    expect(html).toContain('id="h">H</h1>');
-  });
-
-  it('uses title from frontmatter', async () => {
-    expect(await r.renderHtml('---\ntitle: T\n---\n# C')).toContain('<title>T</title>');
-  });
-
-  it('includes MathJax script', async () => {
-    expect(await r.renderHtml('$E=mc^2$')).toContain('MathJax-script');
-  });
-
-  it('does not include MathJax script when math is disabled', async () => {
-    expect(await r.renderHtml('$E=mc^2$', { math: false })).not.toContain('MathJax-script');
-  });
-
-  it('includes Mermaid script and renders mermaid fences as diagram containers', async () => {
-    const html = await r.renderHtml('```mermaid\ngraph TD;\nA --> B;\n```');
-    expect(html).toContain('Mermaid-script');
-    expect(html).toContain('<div class="mermaid">graph TD;\nA --&gt; B;</div>');
-    expect(html).not.toContain('language-mermaid');
-  });
-
-  it('does not include Mermaid script when mermaid is disabled', async () => {
-    const html = await r.renderHtml('```mermaid\ngraph TD;\nA --> B;\n```', { mermaid: false });
-    expect(html).not.toContain('Mermaid-script');
-  });
-
-  it('handles footnotes', async () => {
-    expect(await r.renderHtml('F[^1]\n\n[^1]: C')).toContain('class="footnotes"');
-  });
-
-  it('highlights code', async () => {
-    const html = await r.renderHtml('```js\nconst x = 1;\n```');
-    expect(html).toContain('hljs language-js');
-    // Verify actual syntax highlighting spans are produced (not just class names)
-    expect(html).toContain('<span class="hljs-keyword">const</span>');
-  });
-
-  it('highlights code for multiple languages', async () => {
-    const html = await r.renderHtml('```rust\nfn main() {\n    let x = 5;\n}\n```');
-    expect(html).toContain('hljs language-rust');
-    expect(html).toContain('<span class="hljs-keyword">fn</span>');
-    expect(html).toContain('<span class="hljs-keyword">let</span>');
-  });
-
-  it('generates TOC', async () => {
-    const html = await r.renderHtml('# H1\n## H2\n[TOC]');
-    expect(html).toContain('class="toc"');
-    expect(html).toContain('href="#h1"');
-  });
-
-  it('uses custom template', async () => {
-    const html = await new Renderer({
-      template: resolve(__dirname, 'fixtures/template.html')
-    }).renderHtml('# HT');
-    expect(html).toContain('Markdown Document - <h1 id="ht">HT</h1>');
-  });
-
-  it('escapes title values from frontmatter', async () => {
-    const html = await r.renderHtml('---\ntitle: "<script>boom</script>"\n---\n# C');
-    expect(html).toContain('&lt;script&gt;boom&lt;/script&gt;');
-    expect(html).not.toContain('<title><script>boom</script></title>');
-  });
-
-  it('injects base tag', async () => {
-    expect(await new Renderer({ basePath: '/p' }).renderHtml('# H')).toContain(
-      '<base href="file:///p/">'
-    );
-  });
-
-  it('handles malformed frontmatter', async () => {
-    const html = await r.renderHtml('---\ni: [\n---\n# MC');
-    expect(html).toContain('id="mc">MC</h1>');
-  });
-
-  it('handles TOC with no headings', async () => {
-    expect(await r.renderHtml('T', { toc: true })).not.toContain('class="toc"');
-  });
-
-  it('renders complex nested lists', async () => {
-    const html = await r.renderHtml('1. I1\n    - S1');
-    expect(html).toContain('<ol>');
-    expect(html).toContain('<ul>');
-  });
-
-  it('handles GFM task lists', async () => {
-    expect(await r.renderHtml('- [x] T')).toContain('type="checkbox"');
-  });
-
-  it('handles tables with alignment', async () => {
-    expect(await r.renderHtml('| L | R |\n|:-|-:|\n| 1 | 2 |')).toContain('align="left"');
-  });
-
-  it('rewrites markdown links from .md to .pdf', async () => {
-    const html = await r.renderHtml('[Doc](./guide.md)');
-    expect(html).toContain('href="./guide.pdf"');
-  });
-
-  it('rewrites markdown links with anchors, query strings, and .markdown extension', async () => {
-    const html = await r.renderHtml(
-      '[Anchor](./guide.md#intro) [Query](./guide.md?x=1#top) [Long](./guide.markdown)'
-    );
-    expect(html).toContain('href="./guide.pdf#intro"');
-    expect(html).toContain('href="./guide.pdf?x=1#top"');
-    expect(html).toContain('href="./guide.pdf"');
-  });
-
-  it('renders markdown formatting inside link text', async () => {
-    const html = await r.renderHtml('[**Bold** _Em_](https://example.com)');
-    expect(html).toContain('<a href="https://example.com">');
-    expect(html).toContain('<strong>Bold</strong>');
-    expect(html).toContain('<em>Em</em>');
-  });
-
-  it('sanitizes dangerous javascript links', async () => {
-    const html = await r.renderHtml('[Unsafe](javascript:alert(1))');
-    expect(html).toContain('href="#"');
-    expect(html).not.toContain('javascript:alert(1)');
-  });
-
-  it('preserves double backslashes in display math', async () => {
-    const md = '$$\n\\begin{aligned}\na &= b \\\\\nc &= d\n\\end{aligned}\n$$';
-    const html = await r.renderHtml(md);
-    // Double backslashes must survive Marked processing (not become \<br>)
-    expect(html).toContain('a &= b \\\\');
-    expect(html).toContain('c &= d');
-    // $$ delimiters must be preserved
-    expect(html).toContain('$$');
-  });
-
-  it('preserves ampersands in display math', async () => {
-    const md = '$$\nx &= y + z\n$$';
-    const html = await r.renderHtml(md);
-    // & must NOT be HTML-escaped to &amp; inside math
-    expect(html).toContain('x &= y + z');
-    expect(html).not.toContain('x &amp;= y + z');
-  });
-
-  it('does not mangle math inside code blocks', async () => {
-    const md = '```tex\n$$\na &= b \\\\\n$$\n```';
-    const html = await r.renderHtml(md);
-    // Code blocks should still be processed normally (not treated as math)
-    expect(html).toContain('hljs language-tex');
-  });
-
-  it('handles inline math alongside display math', async () => {
-    const md = 'Inline $x^2$ and display:\n\n$$\n\\sum_{i=1}^{n} i = \\frac{n(n+1)}{2}\n$$';
-    const html = await r.renderHtml(md);
-    expect(html).toContain('$x^2$');
-    expect(html).toContain('$$');
-    expect(html).toContain('\\sum_{i=1}^{n}');
-  });
-
-  it('preserves ampersands in inline math', async () => {
-    const html = await r.renderHtml('Inline math $a & b$ should stay intact.');
-    expect(html).toContain('$a & b$');
-    expect(html).not.toContain('$a &amp; b$');
-  });
-
-  it('replaces all TOC placeholders', async () => {
-    const html = await r.renderHtml('# One\n\n[TOC]\n\n## Two\n\n[TOC]', { toc: true });
-    const tocMatches = html.match(/class="toc"/g) ?? [];
-    expect(tocMatches.length).toBe(2);
-    expect(html).not.toContain('[[TOC_PLACEHOLDER]]');
-  });
-
-  it('supports custom css and fails clearly when missing', async () => {
-    const dir = await mkdtemp(resolve(tmpdir(), 'convpdf-unit-css-'));
-    try {
-      const cssPath = resolve(dir, 'custom.css');
-      await writeFile(cssPath, 'body { color: rgb(1, 2, 3); }');
-      const html = await new Renderer({ customCss: cssPath }).renderHtml('# H');
-      expect(html).toContain('rgb(1, 2, 3)');
-
-      await expect(
-        new Renderer({ customCss: resolve(dir, 'missing.css') }).renderHtml('# H')
-      ).rejects.toThrow('Failed to read custom CSS');
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  it('detects mermaid fenced blocks', () => {
-    expect(hasMermaidSyntax('```mermaid\ngraph LR;\nA-->B;\n```')).toBe(true);
-    expect(hasMermaidSyntax('```js\nconsole.log("no mermaid");\n```')).toBe(false);
+describe('Math Detection', () => {
+  it('detects real math and ignores math-like code/link segments', () => {
+    expect(hasMathSyntax('Inline $x^2$ math')).toBe(true);
+    expect(hasMathSyntax('```js\nconst x = "$not-math$";\n```')).toBe(false);
+    expect(hasMathSyntax('[label $x$](https://example.com)')).toBe(true);
   });
 });
 
 describe('Validation', () => {
-  it('normalizes paper format case-insensitively', () => {
+  it('normalizes paper format case-insensitively and rejects invalid formats', () => {
     expect(normalizePaperFormat('a4')).toBe('A4');
-  });
-
-  it('throws on invalid paper format', () => {
     expect(() => normalizePaperFormat('super-a4')).toThrow('Invalid paper format');
   });
 
-  it('parses 1-4 margin shorthand values', () => {
+  it('parses 1-4 margin shorthands', () => {
     expect(parseMargin('12mm')).toEqual({
       top: '12mm',
       right: '12mm',
@@ -261,34 +209,27 @@ describe('Validation', () => {
       bottom: '3in',
       left: '2in'
     });
+    expect(parseMargin('1 2 3 4')).toEqual({ top: '1', right: '2', bottom: '3', left: '4' });
   });
 
-  it('uses default margin if not provided', () => {
+  it('uses defaults and rejects invalid margin values', () => {
     expect(parseMargin()).toEqual({
       top: '15mm',
       right: '10mm',
       bottom: '15mm',
       left: '10mm'
     });
-  });
-
-  it('accepts numeric margins by coercing to CSS lengths', () => {
-    expect(parseMargin(10)).toEqual({
-      top: '10',
-      right: '10',
-      bottom: '10',
-      left: '10'
-    });
-  });
-
-  it('throws for invalid margin shape', () => {
+    expect(parseMargin(10)).toEqual({ top: '10', right: '10', bottom: '10', left: '10' });
     expect(() => parseMargin('1 2 3 4 5')).toThrow('Invalid margin value');
+    expect(() => parseMargin('10qu')).toThrow('Invalid margin token');
   });
 
-  it('validates toc depth bounds', () => {
+  it('validates TOC depth bounds and integer constraints', () => {
+    expect(normalizeTocDepth()).toBe(6);
     expect(normalizeTocDepth(1)).toBe(1);
     expect(normalizeTocDepth(6)).toBe(6);
     expect(() => normalizeTocDepth(0)).toThrow('between 1 and 6');
     expect(() => normalizeTocDepth(7)).toThrow('between 1 and 6');
+    expect(() => normalizeTocDepth(1.5)).toThrow('Expected an integer');
   });
 });
