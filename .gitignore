@@ -3,6 +3,7 @@ dist
 *.pdf
 *.png
 *.jpg
+!showcase.pdf
 .DS_Store
 tests/output*/
 .convpdf-tmp-*
