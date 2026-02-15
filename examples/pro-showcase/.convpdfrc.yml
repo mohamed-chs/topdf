@@ -2,8 +2,6 @@ margin: "20mm"
 format: "A4"
 toc: true
 tocDepth: 3
-math: true
-mermaid: true
 css: "styles.css"
 template: "template.html"
 header: "header.html"
