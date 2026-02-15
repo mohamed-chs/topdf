@@ -84,6 +84,19 @@ describe('CLI', () => {
     }
   });
 
+  it('fails when config uses removed math/mermaid toggles', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'convpdf-cli-removed-config-toggles-'));
+    try {
+      await writeFile(join(dir, 'doc.md'), '# C');
+      await writeFile(join(dir, '.convpdfrc.yaml'), 'math: false');
+      const output = runCliExpectFailure(['doc.md'], dir);
+      expect(output).toContain('math');
+      expect(output).toContain('no longer supported');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it('fails when single output pdf is used with expandable inputs', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'convpdf-cli-output-'));
     try {
@@ -190,6 +203,32 @@ describe('CLI', () => {
       await writeFile(join(dir, 'doc.md'), '# A');
       const output = runCliExpectFailure(['doc.md', '-j', '2abc'], dir);
       expect(output).toContain('Invalid integer');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('caps concurrency to avoid runaway resource usage', { timeout: 60000 }, async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'convpdf-cli-concurrency-cap-'));
+    try {
+      await writeFile(join(dir, '1.md'), '# 1');
+      await writeFile(join(dir, '2.md'), '# 2');
+      const output = runCli(['*.md', '-j', '999'], dir);
+      expect(output).toContain('Requested concurrency 999 is out of range. Using 32');
+      expect(existsSync(join(dir, '1.pdf'))).toBe(true);
+      expect(existsSync(join(dir, '2.pdf'))).toBe(true);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects removed math/mermaid CLI toggles', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'convpdf-cli-removed-flags-'));
+    try {
+      await writeFile(join(dir, 'doc.md'), '# A');
+      const output = runCliExpectFailure(['doc.md', '--no-math'], dir);
+      expect(output).toContain('unknown option');
+      expect(output).toContain('--no-math');
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

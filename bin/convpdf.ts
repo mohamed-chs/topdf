@@ -41,14 +41,12 @@ interface CliOptions {
   footer?: string;
   toc?: boolean;
   tocDepth?: number;
-  math?: boolean;
-  mermaid?: boolean;
   executablePath?: string;
   preserveTimestamp?: boolean;
   concurrency?: number;
 }
 
-interface ConfigFile extends RendererOptions {
+interface ConfigFile extends Omit<RendererOptions, 'math' | 'mermaid'> {
   header?: string;
   footer?: string;
   css?: string;
@@ -74,6 +72,8 @@ interface InputDescriptor {
 }
 
 const program = new Command();
+const DEFAULT_CONCURRENCY = 5;
+const MAX_CONCURRENCY = 32;
 const hasGlobMagic = (value: string): boolean => /[*?[\]{}()]/.test(value);
 
 const getGlobParent = (pattern: string): string => {
@@ -128,7 +128,12 @@ const loadConfig = async (): Promise<LoadedConfig> => {
         throw new Error(`Expected object at root of config, got ${typeof parsed}`);
       }
 
-      const config = parsed as ConfigFile;
+      const config = parsed as ConfigFile & { math?: unknown; mermaid?: unknown };
+      if ('math' in config || 'mermaid' in config) {
+        throw new Error(
+          'The "math" and "mermaid" config keys are no longer supported. Rendering is now automatic when syntax is detected.'
+        );
+      }
       const configDir = dirname(configPath);
       if (config.css) config.css = resolve(configDir, config.css);
       if (config.template) config.template = resolve(configDir, config.template);
@@ -294,11 +299,14 @@ program
   .option('--footer <path>', 'Custom footer template')
   .option('--toc', 'Generate Table of Contents')
   .option('--toc-depth <depth>', 'Table of Contents depth', parseInteger)
-  .option('--no-math', 'Disable MathJax')
-  .option('--no-mermaid', 'Disable Mermaid diagrams')
   .option('--executable-path <path>', 'Puppeteer browser executable path')
   .option('--preserve-timestamp', 'Preserve modification time from markdown file')
-  .option('-j, --concurrency <number>', 'Number of concurrent conversions', parseInteger, 1)
+  .option(
+    '-j, --concurrency <number>',
+    `Number of concurrent conversions (default: ${DEFAULT_CONCURRENCY}, max: ${MAX_CONCURRENCY})`,
+    parseInteger,
+    DEFAULT_CONCURRENCY
+  )
   .action(async (inputs: string[], options: CliOptions) => {
     let watcher: FSWatcher | null = null;
     const cleanup = async (): Promise<void> => {
@@ -316,7 +324,15 @@ program
         opts.tocDepth = normalizeTocDepth(opts.tocDepth);
       }
 
-      const concurrency = Math.max(1, opts.concurrency ?? 1);
+      const requestedConcurrency = opts.concurrency ?? DEFAULT_CONCURRENCY;
+      const concurrency = Math.max(1, Math.min(requestedConcurrency, MAX_CONCURRENCY));
+      if (requestedConcurrency !== concurrency) {
+        console.log(
+          chalk.yellow(
+            `Requested concurrency ${requestedConcurrency} is out of range. Using ${concurrency} (allowed: 1-${MAX_CONCURRENCY}).`
+          )
+        );
+      }
       const limit = pLimit(concurrency);
 
       const describedInputs = await describeInputs(inputs);
@@ -361,8 +377,6 @@ program
         format: opts.format,
         toc: opts.toc,
         tocDepth: opts.tocDepth,
-        math: opts.math,
-        mermaid: opts.mermaid,
         headerTemplate: await readTemplate(opts.header),
         footerTemplate: await readTemplate(opts.footer),
         executablePath: opts.executablePath

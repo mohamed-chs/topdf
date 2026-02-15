@@ -34,7 +34,7 @@ convpdf "docs/*.md" -o dist/ -j 4
 
 - `-o, --output <path>`: Output directory or file path.
 - `-w, --watch`: Watch for changes.
-- `-j, --concurrency <number>`: Number of concurrent conversions (default: 1).
+- `-j, --concurrency <number>`: Number of concurrent conversions (default: 5, max: 32).
 - `-c, --css <path>`: Custom CSS file.
 - `-t, --template <path>`: Custom HTML template.
 - `-m, --margin <margin>`: Page margin (default: 20mm).
@@ -43,8 +43,6 @@ convpdf "docs/*.md" -o dist/ -j 4
 - `--footer <path>`: Custom footer template.
 - `--toc`: Generate Table of Contents.
 - `--toc-depth <depth>`: TOC depth from `1` to `6`.
-- `--no-math`: Disable MathJax.
-- `--no-mermaid`: Disable Mermaid diagram rendering.
 - `--executable-path <path>`: Custom browser executable path.
 - `--preserve-timestamp`: Preserve modification time from markdown file.
 
@@ -65,7 +63,6 @@ margin: 15mm
 format: A4
 toc: true
 tocDepth: 3
-mermaid: true
 css: ./styles/custom.css
 template: ./templates/report.html
 header: ./templates/header.html
