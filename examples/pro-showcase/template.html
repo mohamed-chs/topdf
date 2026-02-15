@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    {{base}}
+    <title>{{title}}</title>
+    <style>
+      /* Base layout for the custom template */
+      body {
+        margin: 0;
+        padding: 0;
+      }
+      .container {
+        max-width: 900px;
+        margin: 0 auto;
+        padding: 40px;
+      }
+      {{css}}
+    </style>
+    {{mathjax}}
+    {{mermaid}}
+  </head>
+  <body class="markdown-body">
+    <div class="container">
+      {{content}}
+    </div>
+  </body>
+</html>
