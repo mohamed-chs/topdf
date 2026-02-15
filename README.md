@@ -37,7 +37,7 @@ convpdf "docs/*.md" -o dist/ -j 4
 - `-j, --concurrency <number>`: Number of concurrent conversions (default: 5, max: 32).
 - `-c, --css <path>`: Custom CSS file.
 - `-t, --template <path>`: Custom HTML template.
-- `-m, --margin <margin>`: Page margin (default: 20mm).
+- `-m, --margin <margin>`: Page margin (default: 15mm 10mm).
 - `-f, --format <format>`: PDF format (default: A4).
 - `--header <path>`: Custom header template.
 - `--footer <path>`: Custom footer template.

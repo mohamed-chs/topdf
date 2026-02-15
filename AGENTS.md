@@ -44,6 +44,9 @@
   - Keep CLI E2E execution deterministic (`describe.sequential`, color-disabled output assertions, explicit child-process timeout).
   - Include failure-path coverage for configuration and template loading (e.g., invalid config root shapes, missing header/footer/template files) with actionable message assertions.
   - Include branch-level markdown rendering coverage for page breaks, link rewrite suffix handling (`.md/.markdown` with query/hash), and protocol sanitization.
+  - Keep regression coverage for CLI/config precedence so Commander defaults never silently override `.convpdfrc*` values when flags are omitted.
+  - Keep regression coverage for math-bearing headings so TOC labels and anchor IDs remain correct (no placeholder leakage).
+  - Keep regression coverage for header/footer PDF options so supplying only one template does not inject unexpected default content in the other region.
 - **`examples/`**: Canonical real-world scenarios and fidelity probes used for **BOTH DOCUMENTATION AND REGRESSION TESTING**.
   - The exhaustive suite lives directly under `examples/`. Keep scenarios focused and non-overlapping:
     - `core-features.md`: baseline markdown features, emoji, wrapping stress, page breaks, and cross-file navigation.

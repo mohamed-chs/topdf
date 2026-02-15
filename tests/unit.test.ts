@@ -50,6 +50,14 @@ describe('Renderer', () => {
     expect(html).not.toContain('<title><script>x</script></title>');
   });
 
+  it('uses renderer-level title override when provided', async () => {
+    const html = await new Renderer({ title: 'Configured Title' }).renderHtml(
+      '---\ntitle: Frontmatter Title\n---\n# C'
+    );
+    expect(html).toContain('<title>Configured Title</title>');
+    expect(html).not.toContain('<title>Frontmatter Title</title>');
+  });
+
   it('injects base href when basePath is provided', async () => {
     const html = await new Renderer({ basePath: '/tmp/docs' }).renderHtml('# H');
     expect(html).toContain('<base href="file:///tmp/docs/">');
@@ -107,6 +115,14 @@ describe('Renderer', () => {
     const autoTocHtml = await renderer.renderHtml('# Root\n## Child', { toc: true, tocDepth: 2 });
     expect(autoTocHtml).toContain('class="toc"');
     expect(autoTocHtml).toContain('href="#root"');
+  });
+
+  it('preserves math in heading ids and TOC labels', async () => {
+    const html = await renderer.renderHtml('# $x$ heading\n\n## Child $y$', { toc: true });
+    expect(html).toContain('<h1 id="x-heading">');
+    expect(html).toContain('<h2 id="child-y">');
+    expect(html).toContain('href="#x-heading">$x$ heading</a>');
+    expect(html).toContain('href="#child-y">Child $y$</a>');
   });
 
   it('keeps markdown formatting inside link labels and rewrites .md links', async () => {
@@ -173,6 +189,37 @@ describe('Renderer', () => {
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }
+  });
+
+  it('does not inject a default footer when only a header template is provided', async () => {
+    const rendererWithFakeBrowser = new Renderer();
+    const pdfCalls: Array<Record<string, unknown>> = [];
+
+    const fakePage = {
+      emulateMediaType: vi.fn(async () => {}),
+      goto: vi.fn(async () => {}),
+      evaluate: vi.fn(async () => {}),
+      pdf: vi.fn(async (options: Record<string, unknown>) => {
+        pdfCalls.push(options);
+      }),
+      close: vi.fn(async () => {})
+    };
+
+    // @ts-expect-error injecting a fake browser for unit isolation
+    rendererWithFakeBrowser.browser = { newPage: vi.fn(async () => fakePage) } as unknown;
+
+    await rendererWithFakeBrowser.generatePdf(
+      '# H',
+      resolve(tmpdir(), `convpdf-test-${Date.now()}.pdf`),
+      {
+        headerTemplate: '<div>H</div>'
+      }
+    );
+
+    expect(pdfCalls).toHaveLength(1);
+    expect(pdfCalls[0]?.displayHeaderFooter).toBe(true);
+    expect(pdfCalls[0]?.headerTemplate).toBe('<div>H</div>');
+    expect(pdfCalls[0]?.footerTemplate).toBe('<span></span>');
   });
 
   it('detects mermaid syntax independently', () => {

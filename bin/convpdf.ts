@@ -293,8 +293,8 @@ program
   .option('-w, --watch', 'Watch for changes')
   .option('-c, --css <path>', 'Custom CSS')
   .option('-t, --template <path>', 'Custom HTML template')
-  .option('-m, --margin <margin>', 'Page margin', '15mm 10mm')
-  .option('-f, --format <format>', 'PDF format', 'A4')
+  .option('-m, --margin <margin>', 'Page margin (default: 15mm 10mm)')
+  .option('-f, --format <format>', 'PDF format (default: A4)')
   .option('--header <path>', 'Custom header template')
   .option('--footer <path>', 'Custom footer template')
   .option('--toc', 'Generate Table of Contents')
@@ -304,8 +304,7 @@ program
   .option(
     '-j, --concurrency <number>',
     `Number of concurrent conversions (default: ${DEFAULT_CONCURRENCY}, max: ${MAX_CONCURRENCY})`,
-    parseInteger,
-    DEFAULT_CONCURRENCY
+    parseInteger
   )
   .action(async (inputs: string[], options: CliOptions) => {
     let watcher: FSWatcher | null = null;

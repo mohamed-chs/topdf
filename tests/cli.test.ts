@@ -114,6 +114,18 @@ describe.sequential('CLI', () => {
     expect(result.combined).toContain('Using config: .convpdfrc.yaml');
   });
 
+  it('applies config values when CLI flags are omitted', async () => {
+    const dir = await createCaseDir('config-precedence');
+    await writeFile(join(dir, 'doc.md'), '# C');
+    await writeFile(join(dir, '.convpdfrc.yaml'), 'margin: "1 2 3 4 5"\nconcurrency: 999\n');
+
+    const result = runCliExpectFailure(['doc.md'], { cwd: dir });
+
+    expect(result.combined).toContain('Using config: .convpdfrc.yaml');
+    expect(result.combined).toContain('Requested concurrency 999 is out of range. Using 32');
+    expect(result.combined).toContain('Invalid margin value');
+  });
+
   it('fails on malformed config with actionable error', async () => {
     const dir = await createCaseDir('bad-config');
     await writeFile(join(dir, 'doc.md'), '# C');

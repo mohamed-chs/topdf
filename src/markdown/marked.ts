@@ -2,7 +2,6 @@ import { Marked } from 'marked';
 import type { Token } from 'marked';
 import type { Tokens } from 'marked';
 import { markedHighlight } from 'marked-highlight';
-import { gfmHeadingId } from 'marked-gfm-heading-id';
 import footnote from 'marked-footnote';
 import hljs from 'highlight.js';
 import type GithubSlugger from 'github-slugger';
@@ -42,11 +41,18 @@ export const createMarkedInstance = (slugger: GithubSlugger): Marked => {
       })
     )
     .use(footnote())
-    .use(gfmHeadingId())
     .use({
+      renderer: {
+        heading(this: { parser: { parseInline: (tokens: Token[]) => string } }, token: Token) {
+          const heading = token as Tokens.Heading & { id?: string };
+          const text = this.parser.parseInline(heading.tokens);
+          if (!heading.id) return `<h${heading.depth}>${text}</h${heading.depth}>\n`;
+          return `<h${heading.depth} id="${escapeHtml(heading.id)}">${text}</h${heading.depth}>\n`;
+        }
+      },
       walkTokens(token: Token) {
         const current = token as CustomToken;
-        if (current.type === 'heading' && !current.id && current.text) {
+        if (current.type === 'heading' && current.text) {
           current.id = slugger.slug(stripMarkdownLinks(stripHtml(current.text)));
         }
         if (current.type === 'link') {

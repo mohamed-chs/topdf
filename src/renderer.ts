@@ -88,6 +88,15 @@ export class Renderer {
     const { text: safeContent, restore: restoreMath } = protectMath(content);
 
     const tokens = marked.lexer(safeContent) as unknown as CustomToken[];
+    const restoreHeadingMath = (items: CustomToken[]): void => {
+      for (const token of items) {
+        if (token.type === 'heading' && typeof token.text === 'string') {
+          token.text = restoreMath(token.text);
+        }
+        if (token.tokens?.length) restoreHeadingMath(token.tokens);
+      }
+    };
+    restoreHeadingMath(tokens);
 
     if (marked.defaults.walkTokens) {
       void marked.walkTokens(tokens as unknown as Token[], marked.defaults.walkTokens);
@@ -128,11 +137,16 @@ export class Renderer {
 
     const [defaultCss, highlightCss] = await stylesPromise;
     const css = `${defaultCss}\n${highlightCss}\n${customCssContent}`;
-    const title = typeof data.title === 'string' ? data.title : 'Markdown Document';
+    const title =
+      typeof opts.title === 'string'
+        ? opts.title
+        : typeof data.title === 'string'
+          ? data.title
+          : 'Markdown Document';
 
     return renderTemplate({
       templatePath: opts.template,
-      title: overrides.title ?? title,
+      title,
       css,
       content: html,
       basePath: opts.basePath,
@@ -246,9 +260,7 @@ export class Renderer {
         margin,
         displayHeaderFooter: !!(opts.headerTemplate || opts.footerTemplate),
         headerTemplate: opts.headerTemplate || '<span></span>',
-        footerTemplate:
-          opts.footerTemplate ||
-          '<div style="font-size: 10px; width: 100%; text-align: center; color: #666;"><span class="pageNumber"></span> / <span class="totalPages"></span></div>'
+        footerTemplate: opts.footerTemplate || '<span></span>'
       });
     } finally {
       await page.close().catch(() => {});
