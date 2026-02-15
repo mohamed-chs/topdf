@@ -124,6 +124,16 @@ describe.sequential('CLI', () => {
     expect(result.combined).toContain('Failed to parse config');
   });
 
+  it('fails when config root is not an object', async () => {
+    const dir = await createCaseDir('invalid-config-root');
+    await writeFile(join(dir, 'doc.md'), '# C');
+    await writeFile(join(dir, '.convpdfrc.yaml'), '- one\n- two\n');
+
+    const result = runCliExpectFailure(['doc.md'], { cwd: dir });
+
+    expect(result.combined).toContain('Expected object at root of config');
+  });
+
   it('fails when config uses removed math/mermaid toggles', async () => {
     const dir = await createCaseDir('removed-config-toggles');
     await writeFile(join(dir, 'doc.md'), '# C');
@@ -221,6 +231,21 @@ describe.sequential('CLI', () => {
     );
 
     expect(existsSync(join(dir, 'doc.pdf'))).toBe(true);
+  });
+
+  it('fails when header or footer template files are missing', async () => {
+    const dir = await createCaseDir('missing-header-footer');
+    await writeFile(join(dir, 'doc.md'), '# Title');
+
+    const headerFailure = runCliExpectFailure(['doc.md', '--header', 'missing-header.html'], {
+      cwd: dir
+    });
+    expect(headerFailure.combined).toContain('Failed to read template file "missing-header.html"');
+
+    const footerFailure = runCliExpectFailure(['doc.md', '--footer', 'missing-footer.html'], {
+      cwd: dir
+    });
+    expect(footerFailure.combined).toContain('Failed to read template file "missing-footer.html"');
   });
 
   it('renders mermaid diagrams in generated PDFs', { timeout: 50000 }, async () => {

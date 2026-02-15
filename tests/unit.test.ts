@@ -87,6 +87,15 @@ describe('Renderer', () => {
     expect(html).toContain('class="footnotes"');
   });
 
+  it('renders page-break markers and preserves markdown link suffixes', async () => {
+    const html = await renderer.renderHtml(
+      '# A\n\n<!-- PAGE_BREAK -->\n\n[Doc](./guide.md?x=1#top) [Notes](./notes.markdown#frag?x=1)'
+    );
+    expect(html).toContain('<div class="page-break"></div>');
+    expect(html).toContain('href="./guide.pdf?x=1#top"');
+    expect(html).toContain('href="./notes.pdf#frag?x=1"');
+  });
+
   it('generates TOC for placeholders and global toc mode', async () => {
     const placeholderHtml = await renderer.renderHtml('# One\n\n[TOC]\n\n## Two\n\n[TOC]', {
       toc: true
@@ -115,6 +124,17 @@ describe('Renderer', () => {
     expect(html).not.toContain('javascript:alert(1)');
   });
 
+  it('allows safe protocols and blocks unsafe protocol links', async () => {
+    const html = await renderer.renderHtml(
+      '[Mail](mailto:test@example.com) [Phone](tel:+123) [File](file:///tmp/a.md) [Data](data:text/html,1)'
+    );
+    expect(html).toContain('href="mailto:test@example.com"');
+    expect(html).toContain('href="tel:+123"');
+    expect(html).toContain('href="file:///tmp/a.md"');
+    expect(html).toContain('href="#"');
+    expect(html).not.toContain('href="data:text/html,1"');
+  });
+
   it('preserves display and inline math content', async () => {
     const html = await renderer.renderHtml(
       '$$\n\\begin{aligned}\na &= b \\\\\nc &= d\n\\end{aligned}\n$$\n\nInline: $a & b$'
@@ -140,6 +160,9 @@ describe('Renderer', () => {
         template: resolve(__dirname, 'fixtures/template.html')
       }).renderHtml('# HT');
       expect(customTemplateHtml).toContain('Markdown Document - <h1 id="ht">HT</h1>');
+      await expect(
+        new Renderer({ template: resolve(tempRoot, 'missing-template.html') }).renderHtml('# H')
+      ).rejects.toThrow('Failed to read template');
 
       const customCssHtml = await new Renderer({ customCss: cssPath }).renderHtml('# HT');
       expect(customCssHtml).toContain('rgb(1, 2, 3)');
@@ -166,6 +189,20 @@ describe('Frontmatter Parsing', () => {
     expect(parsed.data).toEqual({});
     expect(parsed.content.trim()).toBe('# C');
     expect(parsed.warnings).toEqual([]);
+  });
+
+  it('returns empty data for non-object frontmatter and unclosed blocks', () => {
+    const scalar = parseFrontmatter('---\ntrue\n---\n# C');
+    expect(scalar.data).toEqual({});
+    expect(scalar.content.trim()).toBe('# C');
+    expect(scalar.warnings).toEqual([]);
+
+    const unclosed = parseFrontmatter('---\ntitle: Test\n# C');
+    expect(unclosed).toEqual({
+      data: {},
+      content: '---\ntitle: Test\n# C',
+      warnings: []
+    });
   });
 
   it('returns warnings for malformed frontmatter', () => {

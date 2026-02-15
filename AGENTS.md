@@ -42,6 +42,8 @@
   - CLI tests run in a shared suite-scoped temp root with per-case subdirectories; keep this pattern to reduce filesystem churn while preserving isolation.
   - Any test asserting temp-file cleanup must scope `TMPDIR`/`TMP`/`TEMP` to a case-local directory instead of inspecting global OS temp state.
   - Keep CLI E2E execution deterministic (`describe.sequential`, color-disabled output assertions, explicit child-process timeout).
+  - Include failure-path coverage for configuration and template loading (e.g., invalid config root shapes, missing header/footer/template files) with actionable message assertions.
+  - Include branch-level markdown rendering coverage for page breaks, link rewrite suffix handling (`.md/.markdown` with query/hash), and protocol sanitization.
 - **`examples/`**: Canonical real-world scenarios and fidelity probes used for **BOTH DOCUMENTATION AND REGRESSION TESTING**.
   - The exhaustive suite lives directly under `examples/`. Keep scenarios focused and non-overlapping:
     - `core-features.md`: baseline markdown features, emoji, wrapping stress, page breaks, and cross-file navigation.
