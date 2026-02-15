@@ -25,7 +25,7 @@ How about a link inside a footnote?[^link-fn]
 | Column 1 (with `code`) | Column 2 (**bold**) | Column 3 |
 | --- | --- | --- |
 | Row 1 | [Link](https://example.com) | $E=mc^2$ |
-| Row 2 | ![Alt text](https://picsum.photos/200/300) | ~~Deleted~~ |
+| Row 2 | ![Alt text](https://placehold.co/600x400) | ~~Deleted~~ |
 
 ## Empty Sections
 

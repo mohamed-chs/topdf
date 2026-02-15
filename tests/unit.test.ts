@@ -197,6 +197,7 @@ describe('Renderer', () => {
 
     const fakePage = {
       emulateMediaType: vi.fn(async () => {}),
+      setContent: vi.fn(async () => {}),
       goto: vi.fn(async () => {}),
       evaluate: vi.fn(async () => {}),
       pdf: vi.fn(async (options: Record<string, unknown>) => {

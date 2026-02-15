@@ -24,8 +24,12 @@
 
 ## Codebase Overview
 - **`bin/convpdf.ts`**: The **CLI ENTRY POINT**. Responsible for command-line argument parsing (Commander), config loading (`.convpdfrc*`), deterministic input expansion, output strategy validation (including directory structure mirroring for batch conversions), and serialized watch-mode conversion.
+  - CLI option precedence is explicit: only user-provided flags override config values. Keep this guard so future Commander default behavior changes cannot silently clobber `.convpdfrc*` values.
+  - Watch mode must maintain output ownership state across `add/change/unlink` events to keep collision detection accurate over time.
 - Rendering should remain automatic and syntax-driven for MathJax and Mermaid unless a future task explicitly introduces a justified user-facing control.
 - **`src/renderer.ts`**: The **ORCHESTRATOR**. Coordinates markdown parsing, HTML assembly, browser rendering, and PDF generation.
+  - Rendering now uses `page.setContent(...)` with `<base href=...>` for local asset resolution; do not reintroduce temp HTML files unless a regression proves this path insufficient.
+  - Dynamic content waits (images, MathJax, Mermaid) are centralized and timeout-bounded; preserve these explicit waits when adjusting rendering behavior.
 - **`src/markdown/`**: Markdown pipeline modules:
   - `frontmatter.ts` for frontmatter parsing/validation
   - `math.ts` for math protection/detection
@@ -68,6 +72,7 @@
 - **CRITICAL MINDSET**: Do not assume the codebase is perfect. Be alert for missing logic, edge cases, or features that appear complete but are fragile.
 - **IGNORE BACKWARD COMPATIBILITY**: Prioritize codebase health over legacy support. Perform complete overhauls and rewrites where necessary to improve architecture and quality. Only respect backward compatibility if explicitly and specifically requested.
 - **COHESION PASS**: After any change, perform a targeted sanity sweep to ensure the new behavior is **fully wired** across configs, CLI options, defaults, tests, and documentation.
+- **LIFECYCLE HYGIENE**: CLI and renderer changes must preserve deterministic cleanup for browser pages, watchers, and signal handlers in both one-shot and watch modes.
 - **VERIFICATION**: Always run the full quality gate (`npm run ci`) and fix all issues—including linting, formatting, type errors, and tests—before considering a task finished.
   - For release pipeline edits, also validate workflow logic against the local release helper flow (`npm version` + pushed tags) so tag-triggered automation remains deterministic.
 - **SYSTEM INTEGRITY**: Any change that introduces new build artifacts, temporary directories, or runtime dependencies **MUST** be reflected in `.gitignore` and documented in `README.md`.

@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { existsSync } from 'fs';
 import { execFileSync } from 'child_process';
 import { join, resolve } from 'path';
-import { mkdir, mkdtemp, readdir, rm, stat, utimes, writeFile } from 'fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 
 const bin = resolve('dist/bin/convpdf.js');
@@ -204,7 +204,14 @@ describe.sequential('CLI', () => {
         entry.startsWith('convpdf-')
       );
       expect(leftovers).toEqual([]);
-      expect(existsSync(join(dir, 'doc.pdf'))).toBe(true);
+      const pdfPath = join(dir, 'doc.pdf');
+      expect(existsSync(pdfPath)).toBe(true);
+
+      // Regression guard: ensure local images are embedded in the generated PDF.
+      const pdfBuffer = await readFile(pdfPath);
+      const imageObjectCount = (pdfBuffer.toString('latin1').match(/\/Subtype \/Image/g) ?? [])
+        .length;
+      expect(imageObjectCount).toBeGreaterThan(0);
     }
   );
 

@@ -1,10 +1,10 @@
 import type { Token } from 'marked';
 import puppeteer from 'puppeteer';
-import type { Browser } from 'puppeteer';
-import { readFile, writeFile, unlink, rm, mkdtemp } from 'fs/promises';
+import type { Browser, Page } from 'puppeteer';
+import { mkdir, mkdtemp, readFile, rm, unlink, writeFile } from 'fs/promises';
 import { join, dirname, resolve } from 'path';
-import { tmpdir } from 'os';
 import { fileURLToPath, pathToFileURL } from 'url';
+import { tmpdir } from 'os';
 import GithubSlugger from 'github-slugger';
 import type { RendererOptions, Frontmatter, CustomToken } from './types.js';
 import { parseFrontmatter } from './markdown/frontmatter.js';
@@ -16,8 +16,109 @@ import { renderTemplate } from './html/template.js';
 import { normalizePaperFormat, normalizeTocDepth, parseMargin } from './utils/validation.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const read = (p: string) => readFile(join(__dirname, p), 'utf-8');
+const read = (pathValue: string) => readFile(join(__dirname, pathValue), 'utf-8');
 const stylesPromise = Promise.all([read('styles/default.css'), read('styles/github.css')]);
+
+const DEFAULT_RENDERER_OPTIONS: Readonly<{
+  margin: string;
+  format: NonNullable<RendererOptions['format']>;
+}> = {
+  margin: '15mm 10mm',
+  format: 'A4'
+};
+
+const RENDER_TIMEOUT_MS = 60000;
+
+interface RuntimeRenderOptions extends RendererOptions {
+  margin: string;
+  format: NonNullable<RendererOptions['format']>;
+}
+
+const mergeOptions = (base: RendererOptions, overrides: RendererOptions): RuntimeRenderOptions => {
+  const merged = { ...DEFAULT_RENDERER_OPTIONS, ...base, ...overrides };
+  return {
+    ...merged,
+    margin: merged.margin ?? DEFAULT_RENDERER_OPTIONS.margin,
+    format: merged.format ?? DEFAULT_RENDERER_OPTIONS.format
+  };
+};
+
+const reportFrontmatterWarnings = (warnings: string[]): void => {
+  for (const warning of warnings) {
+    console.warn(warning);
+  }
+};
+
+const reorderFootnotesToEnd = (tokens: CustomToken[]): void => {
+  const footnoteIndex = tokens.findIndex((token) => token.type === 'footnotes');
+  if (footnoteIndex < 0) return;
+  const [footnotes] = tokens.splice(footnoteIndex, 1);
+  if (footnotes) tokens.push(footnotes);
+};
+
+const restoreMathInHeadingTokens = (
+  tokens: CustomToken[],
+  restoreMath: (value: string) => string
+): void => {
+  for (const token of tokens) {
+    if (token.type === 'heading' && typeof token.text === 'string') {
+      token.text = restoreMath(token.text);
+    }
+    if (token.tokens?.length) {
+      restoreMathInHeadingTokens(token.tokens, restoreMath);
+    }
+  }
+};
+
+const waitForDynamicContent = async (page: Page): Promise<void> => {
+  await page.evaluate(async () => {
+    const waitUntil = async (
+      check: () => boolean,
+      timeoutMs: number,
+      label: string
+    ): Promise<void> => {
+      const startedAt = Date.now();
+      while (!check()) {
+        if (Date.now() - startedAt > timeoutMs) {
+          throw new Error(`${label} did not initialize within ${timeoutMs}ms`);
+        }
+        await new Promise((resolveWait) => setTimeout(resolveWait, 100));
+      }
+    };
+
+    const images = Array.from(document.querySelectorAll('img'));
+    await Promise.all(
+      images.map(async (image) => {
+        if (image.complete) return;
+        await new Promise<void>((resolveImage) => {
+          const complete = () => {
+            resolveImage();
+          };
+          image.addEventListener('load', complete, { once: true });
+          image.addEventListener('error', complete, { once: true });
+          setTimeout(complete, 5000);
+        });
+      })
+    );
+
+    const win = window as Window & {
+      MathJax?: { typesetPromise?: () => Promise<void> };
+      mermaid?: {
+        run?: (options?: { querySelector?: string; suppressErrors?: boolean }) => Promise<void>;
+      };
+    };
+
+    if (document.getElementById('MathJax-script')) {
+      await waitUntil(() => typeof win.MathJax?.typesetPromise === 'function', 10000, 'MathJax');
+      await win.MathJax?.typesetPromise?.();
+    }
+
+    if (document.getElementById('Mermaid-script') && document.querySelector('.mermaid')) {
+      await waitUntil(() => typeof win.mermaid?.run === 'function', 10000, 'Mermaid');
+      await win.mermaid?.run?.({ querySelector: '.mermaid', suppressErrors: false });
+    }
+  });
+};
 
 export class Renderer {
   private options: RendererOptions;
@@ -25,7 +126,7 @@ export class Renderer {
   private initializing: Promise<void> | null = null;
 
   constructor(options: RendererOptions = {}) {
-    this.options = { margin: '15mm 10mm', format: 'A4', ...options };
+    this.options = { ...DEFAULT_RENDERER_OPTIONS, ...options };
   }
 
   async init(): Promise<void> {
@@ -55,17 +156,14 @@ export class Renderer {
   }
 
   async close(): Promise<void> {
-    if (this.browser) {
-      await this.browser.close();
-      this.browser = null;
-    }
+    if (!this.browser) return;
+    await this.browser.close();
+    this.browser = null;
   }
 
   parseFrontmatter(markdown: string): { data: Frontmatter; content: string } {
     const parsed = parseFrontmatter(markdown);
-    for (const warning of parsed.warnings) {
-      console.warn(warning);
-    }
+    reportFrontmatterWarnings(parsed.warnings);
     return { data: parsed.data, content: parsed.content };
   }
 
@@ -73,50 +171,35 @@ export class Renderer {
     return generateToc(tokens, depth);
   }
 
-  async renderHtml(md: string, overrides: RendererOptions = {}): Promise<string> {
-    const opts = { ...this.options, ...overrides };
-    const parsedFrontmatter = parseFrontmatter(md);
+  async renderHtml(markdown: string, overrides: RendererOptions = {}): Promise<string> {
+    const opts = mergeOptions(this.options, overrides);
+    const parsedFrontmatter = parseFrontmatter(markdown);
     const { data, content } = parsedFrontmatter;
-    for (const warning of parsedFrontmatter.warnings) {
-      console.warn(warning);
-    }
+    reportFrontmatterWarnings(parsedFrontmatter.warnings);
 
     const slugger = new GithubSlugger();
     const marked = createMarkedInstance(slugger);
 
-    // Protect math from Marked's break conversion and entity escaping.
+    // Guard math content so Marked does not rewrite it.
     const { text: safeContent, restore: restoreMath } = protectMath(content);
-
     const tokens = marked.lexer(safeContent) as unknown as CustomToken[];
-    const restoreHeadingMath = (items: CustomToken[]): void => {
-      for (const token of items) {
-        if (token.type === 'heading' && typeof token.text === 'string') {
-          token.text = restoreMath(token.text);
-        }
-        if (token.tokens?.length) restoreHeadingMath(token.tokens);
-      }
-    };
-    restoreHeadingMath(tokens);
 
+    restoreMathInHeadingTokens(tokens, restoreMath);
     if (marked.defaults.walkTokens) {
       void marked.walkTokens(tokens as unknown as Token[], marked.defaults.walkTokens);
     }
 
-    const footnoteIndex = tokens.findIndex((t) => t.type === 'footnotes');
-    if (footnoteIndex !== -1) {
-      const [footnoteToken] = tokens.splice(footnoteIndex, 1);
-      if (footnoteToken) tokens.push(footnoteToken);
-    }
+    reorderFootnotesToEnd(tokens);
 
     const tocDepth = normalizeTocDepth(
       typeof data.tocDepth === 'number' ? data.tocDepth : opts.tocDepth
     );
-    const hasTocPlaceholder = tokens.some((t) => t.type === 'tocPlaceholder');
+    const hasTocPlaceholder = tokens.some((token) => token.type === 'tocPlaceholder');
     const frontmatterToc = typeof data.toc === 'boolean' ? data.toc : undefined;
     const tocEnabled = opts.toc ?? frontmatterToc ?? false;
     const tocHtml = tocEnabled || hasTocPlaceholder ? this.generateToc(tokens, tocDepth) : '';
-    let html = restoreMath(marked.parser(tokens as unknown as Token[]));
 
+    let html = restoreMath(marked.parser(tokens as unknown as Token[]));
     if (tocHtml) {
       if (html.includes('[[TOC_PLACEHOLDER]]')) {
         html = html.split('[[TOC_PLACEHOLDER]]').join(tocHtml);
@@ -156,14 +239,19 @@ export class Renderer {
   }
 
   async generatePdf(
-    md: string,
+    markdown: string,
     outputPath: string,
     overrides: RendererOptions = {}
   ): Promise<void> {
-    const opts = { ...this.options, ...overrides };
-    const html = await this.renderHtml(md, opts);
+    const opts = mergeOptions(this.options, overrides);
+    const html = await this.renderHtml(markdown, opts);
+
     await this.init();
-    if (!this.browser) throw new Error('Browser not initialized');
+    if (!this.browser) {
+      throw new Error('Browser not initialized');
+    }
+
+    await mkdir(dirname(outputPath), { recursive: true });
 
     const page = await this.browser.newPage();
     const tempDir = await mkdtemp(join(tmpdir(), 'convpdf-'));
@@ -172,93 +260,23 @@ export class Renderer {
 
     try {
       await page.emulateMediaType('print');
-
       await page.goto(pathToFileURL(tempHtmlPath).href, {
         waitUntil: 'networkidle0',
-        timeout: 60000
+        timeout: RENDER_TIMEOUT_MS
       });
-      await page.evaluate(async () => {
-        const images = Array.from(document.querySelectorAll('img'));
-        await Promise.all(
-          images.map((img) => {
-            if (img.complete) return Promise.resolve();
-            return new Promise<void>((resolve) => {
-              img.addEventListener(
-                'load',
-                () => {
-                  resolve();
-                },
-                { once: true }
-              );
-              img.addEventListener(
-                'error',
-                () => {
-                  resolve();
-                },
-                { once: true }
-              );
-              setTimeout(resolve, 5000); // Max 5s per image
-            });
-          })
-        );
-
-        const win = window as Window & {
-          MathJax?: {
-            typesetPromise?: () => Promise<void>;
-          };
-          mermaid?: {
-            run?: (options?: { querySelector?: string; suppressErrors?: boolean }) => Promise<void>;
-          };
-        };
-        if (document.getElementById('MathJax-script')) {
-          await new Promise<void>((resolve, reject) => {
-            const startedAt = Date.now();
-            const tick = () => {
-              if (win.MathJax?.typesetPromise) {
-                resolve();
-                return;
-              }
-              if (Date.now() - startedAt > 10000) {
-                reject(new Error('MathJax did not initialize within 10s'));
-                return;
-              }
-              setTimeout(tick, 100);
-            };
-            tick();
-          });
-          await win.MathJax?.typesetPromise?.();
-        }
-
-        if (document.getElementById('Mermaid-script') && document.querySelector('.mermaid')) {
-          await new Promise<void>((resolve, reject) => {
-            const startedAt = Date.now();
-            const tick = () => {
-              if (win.mermaid?.run) {
-                resolve();
-                return;
-              }
-              if (Date.now() - startedAt > 10000) {
-                reject(new Error('Mermaid did not initialize within 10s'));
-                return;
-              }
-              setTimeout(tick, 100);
-            };
-            tick();
-          });
-          await win.mermaid?.run?.({ querySelector: '.mermaid', suppressErrors: false });
-        }
-      });
+      await waitForDynamicContent(page);
 
       const margin = parseMargin(opts.margin);
       const format = normalizePaperFormat(
-        typeof opts.format === 'string' ? opts.format : undefined
+        typeof opts.format === 'string' ? opts.format : DEFAULT_RENDERER_OPTIONS.format
       );
+
       await page.pdf({
         path: outputPath,
         format,
         printBackground: true,
         margin,
-        displayHeaderFooter: !!(opts.headerTemplate || opts.footerTemplate),
+        displayHeaderFooter: Boolean(opts.headerTemplate || opts.footerTemplate),
         headerTemplate: opts.headerTemplate || '<span></span>',
         footerTemplate: opts.footerTemplate || '<span></span>'
       });
