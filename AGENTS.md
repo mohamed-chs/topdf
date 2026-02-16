@@ -66,7 +66,7 @@
 ## 🚀 Agent Protocol
 
 ### 1. Mandatory Orientation
-- **CODEBASE EXPLORATION**: Regardless of task size, **ALWAYS** start with a thorough exploration of the codebase and dependencies. Do not rely on memory or initial assumptions. **DO NOT SKIP THIS STEP.** Only after this initial mandatory orientation should you proceed with task-specific exploration and implementation.
+- **IN-DEPTH CODEBASE EXPLORATION**: Regardless of task size, **ALWAYS** start with an exhaustive and deep exploration of the codebase, its architecture, and all internal and external dependencies. Do not rely on high-level summaries, memory, or initial assumptions. You **MUST** verify every assumption by directly inspecting the source code, type definitions, and configuration files. **DO NOT SKIP THIS STEP.** Only after this rigorous orientation should you proceed with task-specific exploration and implementation.
 
 ### 2. Operational Rigor
 - **CRITICAL MINDSET**: Do not assume the codebase is perfect. Be alert for missing logic, edge cases, or features that appear complete but are fragile.
