@@ -30,6 +30,47 @@ const rewriteMarkdownHref = (href: string, outputFormat: OutputFormat): string =
 };
 const MERMAID_FENCE_PATTERN =
   /^( {0,3})(`{3,}|~{3,})[ \t]*mermaid(?:[^\r\n]*)\r?\n([\s\S]*?)\r?\n\1\2[ \t]*(?:\r?\n|$)/;
+const CALLOUT_HEADER_PATTERN = /^\[!([a-z][a-z0-9_-]*)\]([+-])?[ \t]*([^\r\n]*?)[ \t]*$/i;
+const BLOCKQUOTE_LINE_PATTERN = /^( {0,3})>[ \t]?([^\r\n]*)(?:\r?\n|$)/;
+
+const CALLOUT_TITLE_MAP: Readonly<Record<string, string>> = {
+  note: 'Note',
+  abstract: 'Abstract',
+  info: 'Info',
+  todo: 'Todo',
+  tip: 'Tip',
+  success: 'Success',
+  question: 'Question',
+  warning: 'Warning',
+  failure: 'Failure',
+  danger: 'Danger',
+  bug: 'Bug',
+  example: 'Example',
+  quote: 'Quote',
+  important: 'Important',
+  caution: 'Caution'
+};
+
+const CALLOUT_TYPE_ALIASES: Readonly<Record<string, string>> = {
+  summary: 'abstract',
+  tldr: 'abstract',
+  faq: 'question',
+  help: 'question',
+  error: 'danger'
+};
+
+const normalizeCalloutType = (rawType: string): string => {
+  const normalized = rawType.toLowerCase();
+  return CALLOUT_TYPE_ALIASES[normalized] ?? normalized;
+};
+
+const toCalloutDefaultTitle = (calloutType: string): string =>
+  CALLOUT_TITLE_MAP[calloutType] ??
+  calloutType
+    .split(/[-_]+/)
+    .filter(Boolean)
+    .map((part) => `${part[0]?.toUpperCase() ?? ''}${part.slice(1)}`)
+    .join(' ');
 
 export const createMarkedInstance = (
   slugger: GithubSlugger,
@@ -71,6 +112,66 @@ export const createMarkedInstance = (
         }
       },
       extensions: [
+        {
+          name: 'callout',
+          level: 'block',
+          childTokens: ['titleTokens', 'tokens'],
+          start(source: string) {
+            return source.match(/^ {0,3}>[ \t]*\[![a-z][a-z0-9_-]*\]/im)?.index;
+          },
+          tokenizer(source: string) {
+            const lines: string[] = [];
+            let raw = '';
+            let remainder = source;
+
+            while (true) {
+              const lineMatch = BLOCKQUOTE_LINE_PATTERN.exec(remainder);
+              if (!lineMatch) break;
+
+              const [lineRaw, , lineContent = ''] = lineMatch;
+              lines.push(lineContent);
+              raw += lineRaw;
+              remainder = remainder.slice(lineRaw.length);
+            }
+
+            const header = lines[0] ? CALLOUT_HEADER_PATTERN.exec(lines[0]) : null;
+            if (!header) return undefined;
+
+            const calloutType = normalizeCalloutType(header[1] ?? '');
+            const foldMarker = header[2] ?? '';
+            const customTitle = header[3]?.trim() ?? '';
+            const calloutTitle = customTitle || toCalloutDefaultTitle(calloutType);
+            const contentMarkdown = lines.slice(1).join('\n');
+
+            return {
+              type: 'callout',
+              raw,
+              calloutType,
+              calloutTitle,
+              collapsed: foldMarker === '-',
+              titleTokens: this.lexer.inlineTokens(calloutTitle),
+              tokens: this.lexer.blockTokens(contentMarkdown)
+            };
+          },
+          renderer(token: Token) {
+            const callout = token as Token & {
+              calloutType?: string;
+              collapsed?: boolean;
+              titleTokens?: Token[];
+              tokens?: Token[];
+            };
+
+            const calloutType = callout.calloutType ?? 'note';
+            const calloutClasses = ['callout', `callout-${calloutType}`];
+            if (callout.collapsed) {
+              calloutClasses.push('callout-collapsed');
+            }
+
+            const titleHtml = this.parser.parseInline(callout.titleTokens ?? []);
+            const contentHtml = this.parser.parse(callout.tokens ?? []);
+            return `<div class="${calloutClasses.join(' ')}" data-callout="${escapeHtml(calloutType)}"><div class="callout-title">${titleHtml}</div><div class="callout-content">${contentHtml}</div></div>\n`;
+          }
+        },
         {
           name: 'mermaid',
           level: 'block',

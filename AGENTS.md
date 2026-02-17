@@ -36,7 +36,7 @@
   - `frontmatter.ts` for frontmatter parsing/validation
   - `math.ts` for math protection/detection
   - `mermaid.ts` for mermaid-fence detection
-  - `marked.ts` for Marked setup/extensions/safe links
+  - `marked.ts` for Marked setup/extensions/safe links, and callout/alert parsing (`> [!note]`, `> [!NOTE]`)
   - `toc.ts` for TOC generation
 - **`src/html/template.ts`**: HTML document assembly with safe token replacement and optional MathJax/Mermaid script injection.
   - Math rendering is on MathJax v4 (`https://cdn.jsdelivr.net/npm/mathjax@4/tex-chtml.js`); keep delimiter config and script URL aligned with upstream v4 docs.
@@ -54,11 +54,13 @@
   - Keep regression coverage for CLI/config precedence so Commander defaults never silently override `.convpdfrc*` values when flags are omitted.
   - Keep regression coverage for math-bearing headings so TOC labels and anchor IDs remain correct (no placeholder leakage).
   - Keep regression coverage for escaped literals: inline-code `` `<!-- PAGE_BREAK -->` `` must not trigger page breaks, and escaped dollars (`\$`) must remain literal (non-math) even when MathJax is enabled by nearby equations.
+  - Keep regression coverage for blockquote-based callouts/alerts: Obsidian and GitHub syntax must render to `.callout` containers while non-matching blockquotes remain regular `<blockquote>` output.
   - Keep regression coverage for header/footer PDF options so supplying only one template does not inject unexpected default content in the other region.
   - Keep regression coverage for output format behavior: `.md/.markdown` link rewrite targets (`.pdf` vs `.html`) and HTML-mode CLI output path validation/collision semantics.
 - **`examples/`**: Canonical real-world scenarios and fidelity probes used for **BOTH DOCUMENTATION AND REGRESSION TESTING**.
   - The exhaustive suite lives directly under `examples/`. Keep scenarios focused and non-overlapping:
     - `core-features.md`: baseline markdown features, emoji, wrapping stress, page breaks, and cross-file navigation.
+    - `callouts-alerts.md`: Obsidian callouts and GitHub alert syntax coverage (including fallback blockquotes).
     - `math-heavy.md`: all advanced MathJax stress cases (inline/display/matrix/alignment/nesting/escaping).
     - `mermaid-diagrams.md`: consolidated flowchart + sequence diagram coverage.
     - Remaining files validate targeted concerns (TOC depth/collisions, edge cases, custom headers/footers, relative assets, syntax breadth, advanced styles, config-local resolution).

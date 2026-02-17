@@ -19,6 +19,12 @@ You can use **bold**, *italic*, or ~~strikethrough~~ text.
 > This is a blockquote.
 > It can span multiple lines.
 
+> [!NOTE]
+> This is a GitHub-style alert rendered as a callout.
+
+> [!tip] Obsidian-style callout
+> This uses the Obsidian callout syntax with a custom title.
+
 ## Code Highlighting
 
 Here is some JavaScript code:

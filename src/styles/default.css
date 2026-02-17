@@ -38,6 +38,75 @@ blockquote {
   border-left: 0.25em solid var(--border-color);
 }
 
+/* Obsidian callouts / GitHub alerts */
+.callout {
+  --callout-accent: #0969da;
+  --callout-bg: #ddf4ff;
+  border-left: 0.25em solid var(--callout-accent);
+  background-color: var(--callout-bg);
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 16px;
+}
+
+.callout-title {
+  color: var(--callout-accent);
+  font-weight: 600;
+  margin: 0 0 0.4rem;
+}
+
+.callout-title > :first-child,
+.callout-content > :first-child {
+  margin-top: 0;
+}
+
+.callout-content > :last-child {
+  margin-bottom: 0;
+}
+
+.callout-note,
+.callout-abstract,
+.callout-info,
+.callout-todo {
+  --callout-accent: #0969da;
+  --callout-bg: #ddf4ff;
+}
+
+.callout-tip,
+.callout-success {
+  --callout-accent: #1a7f37;
+  --callout-bg: #dafbe1;
+}
+
+.callout-question,
+.callout-important {
+  --callout-accent: #8250df;
+  --callout-bg: #fbefff;
+}
+
+.callout-warning,
+.callout-caution {
+  --callout-accent: #9a6700;
+  --callout-bg: #fff8c5;
+}
+
+.callout-failure,
+.callout-danger,
+.callout-bug {
+  --callout-accent: #cf222e;
+  --callout-bg: #ffebe9;
+}
+
+.callout-example {
+  --callout-accent: #0550ae;
+  --callout-bg: #eef4ff;
+}
+
+.callout-quote {
+  --callout-accent: #57606a;
+  --callout-bg: #f6f8fa;
+}
+
 table {
   border-spacing: 0;
   border-collapse: collapse;
@@ -156,5 +225,5 @@ pre code {
 
   .page-break { page-break-before: always; }
   h1, h2, h3, h4, h5, h6 { page-break-after: avoid; }
-  table, pre, blockquote, .toc { page-break-inside: avoid; }
+  table, pre, blockquote, .toc, .callout { page-break-inside: avoid; }
 }

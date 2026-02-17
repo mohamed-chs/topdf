@@ -104,6 +104,33 @@ describe('Renderer', () => {
     expect(html).toContain('href="./notes.pdf#frag?x=1"');
   });
 
+  it('renders github alert blockquotes as callouts', async () => {
+    const html = await renderer.renderHtml(
+      '> [!NOTE]\n> Use [the guide](./guide.md).\n>\n> - item 1\n> - item 2'
+    );
+    expect(html).toContain('class="callout callout-note"');
+    expect(html).toContain('<div class="callout-title">Note</div>');
+    expect(html).toContain('href="./guide.pdf"');
+    expect(html).toContain('<li>item 1</li>');
+  });
+
+  it('renders obsidian callouts with custom titles and collapse marker', async () => {
+    const html = await renderer.renderHtml(
+      '> [!warning]- Read this first\n> Danger zone.\n>\n> `Handle with care`.'
+    );
+    expect(html).toContain('class="callout callout-warning callout-collapsed"');
+    expect(html).toContain('<div class="callout-title">Read this first</div>');
+    expect(html).toContain('<p>Danger zone.</p>');
+    expect(html).toContain('<code>Handle with care</code>');
+  });
+
+  it('keeps non-callout blockquotes unchanged', async () => {
+    const html = await renderer.renderHtml('> [! not a callout\n> still quote');
+    expect(html).toContain('<blockquote>');
+    expect(html).toContain('[! not a callout');
+    expect(html).not.toContain('class="callout');
+  });
+
   it('does not treat inline-code PAGE_BREAK text as a real page break marker', async () => {
     const html = await renderer.renderHtml('`<!-- PAGE_BREAK -->`\n\n<!-- PAGE_BREAK -->');
     expect(html).toContain('<p><code>&lt;!-- PAGE_BREAK --&gt;</code></p>');
