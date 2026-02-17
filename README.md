@@ -5,7 +5,7 @@ Convert Markdown to high-quality PDF using Node.js, Marked, and Puppeteer.
 ## Features
 
 - **Zero-Config**: Beautiful defaults out of the box.
-- **High Fidelity**: Professional rendering of math (MathJax), Mermaid diagrams, code (Highlight.js), and tables.
+- **High Fidelity**: Professional rendering of math (MathJax v4), Mermaid diagrams, code (Highlight.js), and tables.
 - **Advanced Layout**: Support for [TOC], footnotes, and `<!-- PAGE_BREAK -->`.
 - **Customizable**: Override CSS, templates, headers, and footers.
 - **Batch Processing**: Convert multiple files using glob patterns.

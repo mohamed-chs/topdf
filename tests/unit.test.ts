@@ -64,6 +64,8 @@ describe('Renderer', () => {
   it('injects MathJax and Mermaid scripts only when needed', async () => {
     const mathOnly = await renderer.renderHtml('$x+y$');
     expect(mathOnly).toContain('MathJax-script');
+    expect(mathOnly).toContain('mathjax@4/tex-chtml.js');
+    expect(mathOnly).not.toContain('mathjax@3/es5/tex-chtml.js');
     expect(mathOnly).not.toContain('Mermaid-script');
 
     const mermaidOnly = await renderer.renderHtml('```mermaid\ngraph TD;\nA --> B;\n```');

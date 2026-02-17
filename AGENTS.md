@@ -39,6 +39,7 @@
   - `marked.ts` for Marked setup/extensions/safe links
   - `toc.ts` for TOC generation
 - **`src/html/template.ts`**: HTML document assembly with safe token replacement and optional MathJax/Mermaid script injection.
+  - Math rendering is on MathJax v4 (`https://cdn.jsdelivr.net/npm/mathjax@4/tex-chtml.js`); keep delimiter config and script URL aligned with upstream v4 docs.
 - **`src/utils/`**: Shared helpers:
   - `html.ts` for escaping/sanitization
   - `validation.ts` for margin/format/toc-depth validation
