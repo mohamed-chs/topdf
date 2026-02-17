@@ -1,8 +1,9 @@
 import type { Token } from 'marked';
+import { PDFDocument, PDFName, PDFDict, PDFString, PDFHexString } from 'pdf-lib';
 import puppeteer from 'puppeteer';
 import type { Browser, Page } from 'puppeteer';
 import { mkdir, mkdtemp, readFile, rm, unlink, writeFile } from 'fs/promises';
-import { join, dirname, resolve } from 'path';
+import { join, dirname, resolve, relative } from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { tmpdir } from 'os';
 import GithubSlugger from 'github-slugger';
@@ -116,6 +117,64 @@ const waitForDynamicContent = async (page: Page): Promise<void> => {
   });
 };
 
+const toRelativeHrefFromFileUrl = (href: string, basePath: string): string | null => {
+  try {
+    const parsed = new URL(href);
+    if (parsed.protocol !== 'file:') return null;
+
+    const targetPath = fileURLToPath(parsed);
+    let relPath = relative(resolve(basePath), targetPath).split('\\').join('/');
+    if (!relPath) relPath = '.';
+    if (!relPath.startsWith('.') && !relPath.startsWith('/')) {
+      relPath = `./${relPath}`;
+    }
+
+    return `${relPath}${parsed.search}${parsed.hash}`;
+  } catch {
+    return null;
+  }
+};
+
+const rewritePdfFileUrisToRelative = async (
+  outputPath: string,
+  basePath: string
+): Promise<void> => {
+  const pdfBytes = await readFile(outputPath);
+  const pdfDocument = await PDFDocument.load(pdfBytes, { updateMetadata: false });
+  const actionKey = PDFName.of('A');
+  const uriKey = PDFName.of('URI');
+  let changed = false;
+
+  for (const page of pdfDocument.getPages()) {
+    const annotations = page.node.Annots();
+    if (!annotations) continue;
+
+    for (let index = 0; index < annotations.size(); index++) {
+      const annotation = annotations.lookup(index, PDFDict);
+      const action = annotation.lookupMaybe(actionKey, PDFDict);
+      if (!action) continue;
+
+      const uri = action.lookupMaybe(uriKey, PDFString, PDFHexString);
+      if (!uri) continue;
+
+      const href = uri.decodeText();
+      const relativeHref = toRelativeHrefFromFileUrl(href, basePath);
+      if (!relativeHref || href === relativeHref) continue;
+
+      action.set(uriKey, PDFString.of(relativeHref));
+      changed = true;
+    }
+  }
+
+  if (!changed) return;
+
+  const rewritten = await pdfDocument.save({
+    updateFieldAppearances: false,
+    useObjectStreams: false
+  });
+  await writeFile(outputPath, rewritten);
+};
+
 export class Renderer {
   private options: RendererOptions;
   private browser: Browser | null = null;
@@ -225,6 +284,7 @@ export class Renderer {
       css,
       content: html,
       basePath: opts.basePath,
+      baseHref: opts.baseHref,
       includeMathJax: opts.math !== false && hasMathSyntax(content),
       includeMermaid: opts.mermaid !== false && hasMermaidSyntax(content)
     });
@@ -272,6 +332,10 @@ export class Renderer {
         headerTemplate: opts.headerTemplate || '<span></span>',
         footerTemplate: opts.footerTemplate || '<span></span>'
       });
+
+      if (opts.basePath) {
+        await rewritePdfFileUrisToRelative(outputPath, opts.basePath);
+      }
     } finally {
       await page.close().catch(() => {});
       await unlink(tempHtmlPath).catch(() => {});

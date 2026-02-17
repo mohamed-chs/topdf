@@ -348,6 +348,16 @@ const toOutputPath = (inputPath: string, strategy: OutputStrategy, basePath?: st
   return join(strategy.targetPath, `${basename(inputPath, extname(inputPath))}${outputExtension}`);
 };
 
+const buildRelativeBaseHref = (outputPath: string, sourcePath: string): string => {
+  let relativePath = relative(dirname(outputPath), sourcePath).split('\\').join('/');
+  if (!relativePath) {
+    relativePath = '.';
+  } else if (!relativePath.startsWith('.') && !relativePath.startsWith('/')) {
+    relativePath = `./${relativePath}`;
+  }
+  return relativePath.endsWith('/') ? relativePath : `${relativePath}/`;
+};
+
 const resolveOutputPathForInput = (
   inputPath: string,
   strategy: OutputStrategy,
@@ -579,7 +589,7 @@ program
           }
           if (outputStrategy.outputFormat === 'html') {
             const html = await renderer.renderHtml(markdown, {
-              basePath: dirname(inputPath),
+              baseHref: buildRelativeBaseHref(outputPath, dirname(inputPath)),
               linkTargetFormat: 'html'
             });
             await writeFile(outputPath, html, 'utf-8');

@@ -30,6 +30,7 @@ export interface RendererOptions {
   headerTemplate?: string | null;
   footerTemplate?: string | null;
   basePath?: string;
+  baseHref?: string;
   title?: string;
   executablePath?: string;
   preserveTimestamp?: boolean;

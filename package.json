@@ -62,6 +62,7 @@
     "marked-footnote": "^1.4.0",
     "marked-highlight": "^2.2.3",
     "p-limit": "^7.3.0",
+    "pdf-lib": "^1.17.1",
     "puppeteer": "^24.37.2"
   },
   "devDependencies": {

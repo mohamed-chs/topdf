@@ -61,6 +61,12 @@ describe('Renderer', () => {
     expect(html).toContain('<base href="file:///tmp/docs/">');
   });
 
+  it('injects raw base href when baseHref is provided', async () => {
+    const html = await new Renderer({ baseHref: '../docs/' }).renderHtml('# H');
+    expect(html).toContain('<base href="../docs/">');
+    expect(html).not.toContain('<base href="file:///');
+  });
+
   it('injects MathJax and Mermaid scripts only when needed', async () => {
     const mathOnly = await renderer.renderHtml('$x+y$');
     expect(mathOnly).toContain('MathJax-script');

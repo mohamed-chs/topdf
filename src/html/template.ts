@@ -9,6 +9,7 @@ export interface HtmlTemplateInput {
   css: string;
   content: string;
   basePath?: string;
+  baseHref?: string;
   includeMathJax: boolean;
   includeMermaid: boolean;
 }
@@ -67,9 +68,11 @@ const replaceToken = (template: string, token: string, value: string): string =>
 
 export const renderTemplate = async (input: HtmlTemplateInput): Promise<string> => {
   const template = await loadTemplate(input.templatePath);
-  const baseTag = input.basePath
-    ? `<base href="${escapeHtml(pathToFileURL(resolve(input.basePath)).href)}/">`
-    : '';
+  const baseTag = input.baseHref
+    ? `<base href="${escapeHtml(input.baseHref)}">`
+    : input.basePath
+      ? `<base href="${escapeHtml(pathToFileURL(resolve(input.basePath)).href)}/">`
+      : '';
   const mathJax = input.includeMathJax ? MATHJAX_SNIPPET : '';
   const mermaid = input.includeMermaid ? MERMAID_SNIPPET : '';
 

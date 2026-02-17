@@ -100,6 +100,8 @@ describe.sequential('CLI', () => {
     expect(existsSync(outputPath)).toBe(true);
     const html = await readFile(outputPath, 'utf-8');
     expect(html).toContain('href="./next.html"');
+    expect(html).toContain('<base href="./">');
+    expect(html).not.toContain('<base href="file:///');
   });
 
   it('converts a glob batch into an output directory', { timeout: 60000 }, async () => {
@@ -123,6 +125,18 @@ describe.sequential('CLI', () => {
 
     expect(existsSync(join(dir, 'out', 'a.html'))).toBe(true);
     expect(existsSync(join(dir, 'out', 'b.html'))).toBe(true);
+  });
+
+  it('rewrites generated pdf file links to relative paths', { timeout: 50000 }, async () => {
+    const dir = await createCaseDir('pdf-relative-links');
+    await writeFile(join(dir, 'doc.md'), '# Main\n\n[Other](./other.md#top)');
+    await writeFile(join(dir, 'other.md'), '# Other');
+
+    runCli(['doc.md', '-o', 'doc.pdf'], { cwd: dir });
+
+    const pdf = (await readFile(join(dir, 'doc.pdf'))).toString('latin1');
+    expect(pdf).toContain('/URI (./other.pdf#top)');
+    expect(pdf).not.toContain('/URI (file:///');
   });
 
   it('uses config file with relative custom css path', { timeout: 40000 }, async () => {

@@ -10,6 +10,7 @@ Convert Markdown to high-quality PDF using Node.js, Marked, and Puppeteer.
 - **Customizable**: Override CSS, templates, headers, and footers.
 - **Batch Processing**: Convert multiple files using glob patterns.
 - **Watch Mode**: Live-reload PDFs as you edit your Markdown.
+- **Portable Links**: Generated HTML/PDF keeps relative file links portable instead of embedding machine-specific absolute `file:///` paths.
 
 ## Usage
 
