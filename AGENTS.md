@@ -62,6 +62,7 @@
     - `mermaid-diagrams.md`: consolidated flowchart + sequence diagram coverage.
     - Remaining files validate targeted concerns (TOC depth/collisions, edge cases, custom headers/footers, relative assets, syntax breadth, advanced styles, config-local resolution).
   - `examples/pro-showcase/` is a polished end-to-end demo with custom templates and styling.
+  - `examples/templates/` contains multiple full config/template/style packs (`executive-brief`, `academic-journal`, `product-launch`, `engineering-rfc`) with per-pack `sample.md` files; treat these as reusable presets and keep each pack self-contained.
   - Prefer extending existing canonical files over adding new top-level `examples/*.md` unless a new scenario cannot fit without reducing clarity.
 - **`.github/workflows/`**: CI/CD automation:
   - `ci.yml` runs a multi-version quality gate (typecheck/lint/format/build/test) plus package smoke checks (`npm pack --dry-run` and CLI help validation)

@@ -73,6 +73,31 @@ footer: ./templates/footer.html
 
 Paths in config files are resolved relative to the config file location.
 
+## Template Packs
+
+Ready-to-run configuration packs are available in `examples/templates/`.
+Each pack includes:
+
+- `.convpdfrc.yml`
+- `template.html`
+- `styles.css`
+- Optional `header.html` and `footer.html`
+- `sample.md` for quick preview
+
+Available packs:
+
+- `examples/templates/executive-brief`
+- `examples/templates/academic-journal`
+- `examples/templates/product-launch`
+- `examples/templates/engineering-rfc`
+
+Quick start:
+
+```bash
+cd examples/templates/executive-brief
+convpdf ./sample.md -o ./output.pdf
+```
+
 ## Troubleshooting
 
 ### Missing Fonts on Linux

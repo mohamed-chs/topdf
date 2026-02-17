@@ -1,0 +1,7 @@
+margin: "14mm 12mm"
+format: "A4"
+toc: true
+tocDepth: 2
+outputFormat: "html"
+css: "styles.css"
+template: "template.html"
