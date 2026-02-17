@@ -16,6 +16,7 @@ export const PAPER_FORMATS = [
 
 export type PaperFormat = (typeof PAPER_FORMATS)[number];
 export type PaperFormatInput = PaperFormat | Lowercase<PaperFormat>;
+export type OutputFormat = 'pdf' | 'html';
 
 export interface RendererOptions {
   margin?: string;
@@ -32,6 +33,7 @@ export interface RendererOptions {
   title?: string;
   executablePath?: string;
   preserveTimestamp?: boolean;
+  linkTargetFormat?: OutputFormat;
 }
 
 export interface Frontmatter {

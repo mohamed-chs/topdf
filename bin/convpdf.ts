@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
-import { readFile, stat, mkdir, utimes } from 'fs/promises';
+import { readFile, stat, mkdir, utimes, writeFile } from 'fs/promises';
 import { resolve, basename, extname, join, dirname, relative } from 'path';
 import { fileURLToPath } from 'url';
 import chalk from 'chalk';
@@ -10,7 +10,7 @@ import yaml from 'js-yaml';
 import pLimit from 'p-limit';
 import cliProgress from 'cli-progress';
 import { Renderer } from '../src/renderer.js';
-import type { RendererOptions } from '../src/types.js';
+import type { OutputFormat, RendererOptions } from '../src/types.js';
 import { normalizeTocDepth } from '../src/utils/validation.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -55,6 +55,8 @@ interface CliOptions {
   executablePath?: string;
   preserveTimestamp?: boolean;
   concurrency?: number;
+  outputFormat?: OutputFormat;
+  html?: boolean;
 }
 
 interface ConfigFile extends Omit<RendererOptions, 'math' | 'mermaid'> {
@@ -64,6 +66,7 @@ interface ConfigFile extends Omit<RendererOptions, 'math' | 'mermaid'> {
   output?: string;
   watch?: boolean;
   concurrency?: number;
+  outputFormat?: OutputFormat;
 }
 
 interface LoadedConfig {
@@ -76,6 +79,7 @@ type OutputMode = 'adjacent' | 'directory' | 'single-file';
 interface OutputStrategy {
   mode: OutputMode;
   targetPath: string | null;
+  outputFormat: OutputFormat;
 }
 
 interface InputDescriptor {
@@ -88,6 +92,7 @@ interface InputDescriptor {
 interface RuntimeCliOptions extends ConfigFile {
   tocDepth?: number;
   concurrency?: number;
+  html?: boolean;
 }
 
 class ConversionQueue {
@@ -165,6 +170,17 @@ const parseInteger = (raw: string): number => {
   return Number.parseInt(normalized, 10);
 };
 
+const normalizeOutputFormat = (format: unknown): OutputFormat => {
+  if (typeof format !== 'string') {
+    throw new Error(`Invalid output format "${String(format)}". Expected "pdf" or "html".`);
+  }
+  const normalized = format.trim().toLowerCase();
+  if (normalized === 'pdf' || normalized === 'html') {
+    return normalized;
+  }
+  throw new Error(`Invalid output format "${format}". Expected "pdf" or "html".`);
+};
+
 const normalizeConfigPaths = (config: ConfigFile, configPath: string): ConfigFile => {
   const configDir = dirname(configPath);
   const normalized = { ...config };
@@ -231,12 +247,16 @@ const collectDefinedOptions = (options: CliOptions): Partial<CliOptions> => {
   if (options.preserveTimestamp !== undefined)
     defined.preserveTimestamp = options.preserveTimestamp;
   if (options.concurrency !== undefined) defined.concurrency = options.concurrency;
+  if (options.outputFormat !== undefined) defined.outputFormat = options.outputFormat;
+  if (options.html !== undefined) defined.html = options.html;
   return defined;
 };
 
 const resolveRuntimeOptions = (config: ConfigFile, cliOptions: CliOptions): RuntimeCliOptions => {
   const definedCliOptions = collectDefinedOptions(cliOptions);
   const merged = { ...config, ...definedCliOptions };
+  const outputFormat = normalizeOutputFormat(merged.outputFormat ?? 'pdf');
+  merged.outputFormat = merged.html ? 'html' : outputFormat;
   if (merged.tocDepth !== undefined) {
     merged.tocDepth = normalizeTocDepth(merged.tocDepth);
   }
@@ -296,31 +316,33 @@ const resolveMarkdownFiles = async (inputs: InputDescriptor[]): Promise<string[]
 
 const resolveOutputStrategy = (
   outputPath: string | undefined,
-  inputs: InputDescriptor[]
+  inputs: InputDescriptor[],
+  outputFormat: OutputFormat
 ): OutputStrategy => {
   if (!outputPath) {
-    return { mode: 'adjacent', targetPath: null };
+    return { mode: 'adjacent', targetPath: null, outputFormat };
   }
 
   const absoluteOutput = resolve(outputPath);
-  if (!absoluteOutput.toLowerCase().endsWith('.pdf')) {
-    return { mode: 'directory', targetPath: absoluteOutput };
+  if (!absoluteOutput.toLowerCase().endsWith(`.${outputFormat}`)) {
+    return { mode: 'directory', targetPath: absoluteOutput, outputFormat };
   }
 
   const maybeMultiple =
     inputs.length > 1 || inputs.some((input) => input.isDirectory || input.hasGlobMagic);
   if (maybeMultiple) {
     throw new Error(
-      'Output path cannot be a single .pdf file when inputs can expand to multiple markdown files.'
+      `Output path cannot be a single .${outputFormat} file when inputs can expand to multiple markdown files.`
     );
   }
 
-  return { mode: 'single-file', targetPath: absoluteOutput };
+  return { mode: 'single-file', targetPath: absoluteOutput, outputFormat };
 };
 
 const toOutputPath = (inputPath: string, strategy: OutputStrategy, basePath?: string): string => {
+  const outputExtension = `.${strategy.outputFormat}`;
   if (strategy.mode === 'adjacent') {
-    return join(dirname(inputPath), `${basename(inputPath, extname(inputPath))}.pdf`);
+    return join(dirname(inputPath), `${basename(inputPath, extname(inputPath))}${outputExtension}`);
   }
 
   if (strategy.mode === 'single-file') {
@@ -337,10 +359,10 @@ const toOutputPath = (inputPath: string, strategy: OutputStrategy, basePath?: st
   if (basePath) {
     const relPath = relative(basePath, inputPath);
     const relWithoutExtension = join(dirname(relPath), basename(relPath, extname(relPath)));
-    return join(strategy.targetPath, `${relWithoutExtension}.pdf`);
+    return join(strategy.targetPath, `${relWithoutExtension}${outputExtension}`);
   }
 
-  return join(strategy.targetPath, `${basename(inputPath, extname(inputPath))}.pdf`);
+  return join(strategy.targetPath, `${basename(inputPath, extname(inputPath))}${outputExtension}`);
 };
 
 const resolveOutputPathForInput = (
@@ -389,23 +411,27 @@ const readTemplate = async (pathValue?: string): Promise<string | null> => {
   }
 };
 
-const createRendererOptions = async (options: RuntimeCliOptions): Promise<RendererOptions> => ({
-  customCss: options.css ? resolve(options.css) : null,
-  template: options.template ? resolve(options.template) : null,
-  margin: options.margin,
-  format: options.format,
-  toc: options.toc,
-  tocDepth: options.tocDepth,
-  headerTemplate: await readTemplate(options.header),
-  footerTemplate: await readTemplate(options.footer),
-  executablePath: options.executablePath
-});
+const createRendererOptions = async (options: RuntimeCliOptions): Promise<RendererOptions> => {
+  const isPdfOutput = options.outputFormat !== 'html';
+  return {
+    customCss: options.css ? resolve(options.css) : null,
+    template: options.template ? resolve(options.template) : null,
+    margin: options.margin,
+    format: options.format,
+    toc: options.toc,
+    tocDepth: options.tocDepth,
+    headerTemplate: isPdfOutput ? await readTemplate(options.header) : null,
+    footerTemplate: isPdfOutput ? await readTemplate(options.footer) : null,
+    executablePath: options.executablePath,
+    linkTargetFormat: options.outputFormat
+  };
+};
 
 const program = new Command();
 
 program
   .name('convpdf')
-  .description('Convert Markdown to high-quality PDF.')
+  .description('Convert Markdown to high-quality PDF or HTML.')
   .version(pkg.version)
   .argument('<inputs...>', 'Input markdown files or glob patterns')
   .option('-o, --output <path>', 'Output directory or file path')
@@ -420,6 +446,8 @@ program
   .option('--toc-depth <depth>', 'Table of Contents depth', parseInteger)
   .option('--executable-path <path>', 'Puppeteer browser executable path')
   .option('--preserve-timestamp', 'Preserve modification time from markdown file')
+  .option('--output-format <format>', 'Output format: pdf or html', normalizeOutputFormat)
+  .option('--html', 'Shortcut for --output-format html')
   .option(
     '-j, --concurrency <number>',
     `Number of concurrent conversions (default: ${DEFAULT_CONCURRENCY}, max: ${MAX_CONCURRENCY})`,
@@ -485,7 +513,11 @@ program
       const limit = pLimit(concurrency);
 
       const describedInputs = await describeInputs(inputs);
-      const outputStrategy = resolveOutputStrategy(options.output, describedInputs);
+      const outputStrategy = resolveOutputStrategy(
+        options.output,
+        describedInputs,
+        options.outputFormat ?? 'pdf'
+      );
       const files = await resolveMarkdownFiles(describedInputs);
       if (!files.length) {
         throw new Error('No input markdown files found.');
@@ -526,7 +558,7 @@ program
             if (!progressBar) {
               console.log(
                 chalk.yellow(
-                  `Skipping ${relInput}: output is configured as a single PDF file for ${relative(
+                  `Skipping ${relInput}: output is configured as a single ${outputStrategy.outputFormat.toUpperCase()} file for ${relative(
                     process.cwd(),
                     singleInput
                   )}.`
@@ -562,7 +594,18 @@ program
           if (!renderer) {
             throw new Error('Renderer is not initialized.');
           }
-          await renderer.generatePdf(markdown, outputPath, { basePath: dirname(inputPath) });
+          if (outputStrategy.outputFormat === 'html') {
+            const html = await renderer.renderHtml(markdown, {
+              basePath: dirname(inputPath),
+              linkTargetFormat: 'html'
+            });
+            await writeFile(outputPath, html, 'utf-8');
+          } else {
+            await renderer.generatePdf(markdown, outputPath, {
+              basePath: dirname(inputPath),
+              linkTargetFormat: 'pdf'
+            });
+          }
 
           if (options.preserveTimestamp) {
             await utimes(outputPath, inputStats.atime, inputStats.mtime);

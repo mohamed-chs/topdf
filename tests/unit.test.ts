@@ -134,6 +134,14 @@ describe('Renderer', () => {
     expect(html).toContain('href="./notes.pdf"');
   });
 
+  it('rewrites markdown links to .html when html output format is selected', async () => {
+    const html = await new Renderer({ linkTargetFormat: 'html' }).renderHtml(
+      '[Doc](./guide.md#top) [Long](./notes.markdown)'
+    );
+    expect(html).toContain('href="./guide.html#top"');
+    expect(html).toContain('href="./notes.html"');
+  });
+
   it('sanitizes javascript links', async () => {
     const html = await renderer.renderHtml('[Unsafe](javascript:alert(1))');
     expect(html).toContain('href="#"');

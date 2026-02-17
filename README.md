@@ -33,6 +33,8 @@ convpdf "docs/*.md" -o dist/ -j 4
 ## Options
 
 - `-o, --output <path>`: Output directory or file path.
+- `--output-format <format>`: Output format (`pdf` or `html`, default: `pdf`).
+- `--html`: Shortcut for `--output-format html`.
 - `-w, --watch`: Watch for changes.
 - `-j, --concurrency <number>`: Number of concurrent conversions (default: 5, max: 32).
 - `-c, --css <path>`: Custom CSS file.

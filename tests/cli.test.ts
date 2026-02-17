@@ -90,6 +90,18 @@ describe.sequential('CLI', () => {
     expect(existsSync(join(dir, 'result.pdf'))).toBe(true);
   });
 
+  it('converts a single markdown file to adjacent html with --html', async () => {
+    const dir = await createCaseDir('single-html-adjacent');
+    await writeFile(join(dir, 'doc.md'), '# Hello\n\n[Next](./next.md)');
+
+    runCli(['doc.md', '--html'], { cwd: dir });
+
+    const outputPath = join(dir, 'doc.html');
+    expect(existsSync(outputPath)).toBe(true);
+    const html = await readFile(outputPath, 'utf-8');
+    expect(html).toContain('href="./next.html"');
+  });
+
   it('converts a glob batch into an output directory', { timeout: 60000 }, async () => {
     const dir = await createCaseDir('glob-output-dir');
     await writeFile(join(dir, 'a.md'), '# A');
@@ -102,6 +114,17 @@ describe.sequential('CLI', () => {
     expect(result.combined).toContain('Successfully converted 2 file(s).');
   });
 
+  it('converts a glob batch into html output directory', async () => {
+    const dir = await createCaseDir('glob-output-dir-html');
+    await writeFile(join(dir, 'a.md'), '# A');
+    await writeFile(join(dir, 'b.markdown'), '# B');
+
+    runCli(['*.m*', '-o', 'out', '--output-format', 'html'], { cwd: dir });
+
+    expect(existsSync(join(dir, 'out', 'a.html'))).toBe(true);
+    expect(existsSync(join(dir, 'out', 'b.html'))).toBe(true);
+  });
+
   it('uses config file with relative custom css path', { timeout: 40000 }, async () => {
     const dir = await createCaseDir('config-relative-paths');
     await writeFile(join(dir, 'doc.md'), '# Config Driven');
@@ -112,6 +135,19 @@ describe.sequential('CLI', () => {
 
     expect(existsSync(join(dir, 'doc.pdf'))).toBe(true);
     expect(result.combined).toContain('Using config: .convpdfrc.yaml');
+  });
+
+  it('supports html output format from config', async () => {
+    const dir = await createCaseDir('config-output-format-html');
+    await writeFile(join(dir, 'doc.md'), '# Config Html\n\n[Ref](./guide.md)');
+    await writeFile(join(dir, '.convpdfrc.yaml'), 'outputFormat: html\n');
+
+    runCli(['doc.md'], { cwd: dir });
+
+    const outputPath = join(dir, 'doc.html');
+    expect(existsSync(outputPath)).toBe(true);
+    const html = await readFile(outputPath, 'utf-8');
+    expect(html).toContain('href="./guide.html"');
   });
 
   it('applies config values when CLI flags are omitted', async () => {
@@ -165,6 +201,29 @@ describe.sequential('CLI', () => {
     const result = runCliExpectFailure(['*.md', '-o', 'single.pdf'], { cwd: dir });
 
     expect(result.combined).toContain('can expand to multiple markdown files');
+  });
+
+  it('fails when single output html is used with expandable inputs', async () => {
+    const dir = await createCaseDir('single-html-with-glob');
+    await writeFile(join(dir, 'a.md'), '# A');
+    await writeFile(join(dir, 'b.md'), '# B');
+
+    const result = runCliExpectFailure(['*.md', '-o', 'single.html', '--output-format', 'html'], {
+      cwd: dir
+    });
+
+    expect(result.combined).toContain('single .html file');
+  });
+
+  it('fails on invalid output format with clear error', async () => {
+    const dir = await createCaseDir('invalid-output-format');
+    await writeFile(join(dir, 'doc.md'), '# Hello');
+
+    const result = runCliExpectFailure(['doc.md', '--output-format', 'txt'], { cwd: dir });
+
+    expect(result.combined).toContain('Invalid output format');
+    expect(result.combined).toContain('pdf');
+    expect(result.combined).toContain('html');
   });
 
   it('fails on invalid paper format with clear error', async () => {
@@ -265,6 +324,15 @@ describe.sequential('CLI', () => {
       cwd: dir
     });
     expect(footerFailure.combined).toContain('Failed to read template file "missing-footer.html"');
+  });
+
+  it('ignores pdf-only header/footer templates when html output is selected', async () => {
+    const dir = await createCaseDir('html-ignores-header-footer');
+    await writeFile(join(dir, 'doc.md'), '# Title');
+
+    runCli(['doc.md', '--header', 'missing-header.html', '--html'], { cwd: dir });
+
+    expect(existsSync(join(dir, 'doc.html'))).toBe(true);
   });
 
   it('renders mermaid diagrams in generated PDFs', { timeout: 50000 }, async () => {

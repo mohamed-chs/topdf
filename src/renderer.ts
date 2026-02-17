@@ -22,9 +22,11 @@ const stylesPromise = Promise.all([read('styles/default.css'), read('styles/gith
 const DEFAULT_RENDERER_OPTIONS: Readonly<{
   margin: string;
   format: NonNullable<RendererOptions['format']>;
+  linkTargetFormat: NonNullable<RendererOptions['linkTargetFormat']>;
 }> = {
   margin: '15mm 10mm',
-  format: 'A4'
+  format: 'A4',
+  linkTargetFormat: 'pdf'
 };
 
 const RENDER_TIMEOUT_MS = 60000;
@@ -178,7 +180,7 @@ export class Renderer {
     reportFrontmatterWarnings(parsedFrontmatter.warnings);
 
     const slugger = new GithubSlugger();
-    const marked = createMarkedInstance(slugger);
+    const marked = createMarkedInstance(slugger, opts.linkTargetFormat);
 
     // Guard math content so Marked does not rewrite it.
     const { text: safeContent, restore: restoreMath } = protectMath(content);

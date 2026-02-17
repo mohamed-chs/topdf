@@ -6,7 +6,7 @@ import footnote from 'marked-footnote';
 import hljs from 'highlight.js';
 import type GithubSlugger from 'github-slugger';
 import { escapeHtml, sanitizeHref } from '../utils/html.js';
-import type { CustomToken } from '../types.js';
+import type { CustomToken, OutputFormat } from '../types.js';
 
 const stripHtml = (value: string): string => value.replace(/<[^>]+>/g, '').trim();
 const stripMarkdownLinks = (value: string): string =>
@@ -20,16 +20,21 @@ const splitUrlSuffix = (href: string): { path: string; suffix: string } => {
   if (cutIndex === -1) return { path: href, suffix: '' };
   return { path: href.slice(0, cutIndex), suffix: href.slice(cutIndex) };
 };
-const rewriteMarkdownHref = (href: string): string => {
+const rewriteMarkdownHref = (href: string, outputFormat: OutputFormat): string => {
   const { path, suffix } = splitUrlSuffix(href);
-  if (/\.markdown$/i.test(path)) return `${path.replace(/\.markdown$/i, '.pdf')}${suffix}`;
-  if (/\.md$/i.test(path)) return `${path.replace(/\.md$/i, '.pdf')}${suffix}`;
+  if (/\.markdown$/i.test(path)) {
+    return `${path.replace(/\.markdown$/i, `.${outputFormat}`)}${suffix}`;
+  }
+  if (/\.md$/i.test(path)) return `${path.replace(/\.md$/i, `.${outputFormat}`)}${suffix}`;
   return href;
 };
 const MERMAID_FENCE_PATTERN =
   /^( {0,3})(`{3,}|~{3,})[ \t]*mermaid(?:[^\r\n]*)\r?\n([\s\S]*?)\r?\n\1\2[ \t]*(?:\r?\n|$)/;
 
-export const createMarkedInstance = (slugger: GithubSlugger): Marked => {
+export const createMarkedInstance = (
+  slugger: GithubSlugger,
+  outputFormat: OutputFormat = 'pdf'
+): Marked => {
   const marked = new Marked()
     .use(
       markedHighlight({
@@ -59,7 +64,9 @@ export const createMarkedInstance = (slugger: GithubSlugger): Marked => {
           const link = current as unknown as Tokens.Link;
           const href = typeof link.href === 'string' ? link.href.trim() : '';
           if (!href) return;
-          const rewrittenHref = EXTERNAL_LINK.test(href) ? href : rewriteMarkdownHref(href);
+          const rewrittenHref = EXTERNAL_LINK.test(href)
+            ? href
+            : rewriteMarkdownHref(href, outputFormat);
           link.href = sanitizeHref(rewrittenHref);
         }
       },
