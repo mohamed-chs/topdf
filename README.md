@@ -113,42 +113,6 @@ sudo apt-get install fonts-noto-color-emoji fonts-liberation
 
 If you encounter errors launching the browser, you may need to install missing system dependencies for Chromium. You can also specify a custom browser path using the `--executable-path` flag or `PUPPETEER_EXECUTABLE_PATH` environment variable.
 
-## Quality Gate
-
-```bash
-npm run typecheck
-npm run lint
-npm run format:check
-npm run build
-npm test
-```
-
-Or run everything in one command:
-
-```bash
-npm run ci
-```
-
-## Linting and Formatting
-
-```bash
-npm run lint
-npm run lint:fix
-npm run format
-npm run format:check
-```
-
-## Development
-
-```bash
-npm install
-npm run build
-npm test
-
-# Run in dev mode without building dist/
-npm run dev -- input.md
-```
-
 ---
 
 > Inspired by [simonhaenisch/md-to-pdf](https://github.com/simonhaenisch/md-to-pdf)
