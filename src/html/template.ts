@@ -32,6 +32,9 @@ const DEFAULT_TEMPLATE = `<!DOCTYPE html>
 const MATHJAX_SNIPPET = `
 <script>
   window.MathJax = {
+    options: {
+      ignoreHtmlClass: 'convpdf-math-ignore'
+    },
     tex: {
       inlineMath: [['$', '$'], ['\\\\(', '\\\\)']],
       displayMath: [['$$', '$$'], ['\\\\[', '\\\\]']]

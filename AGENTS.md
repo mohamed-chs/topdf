@@ -53,6 +53,7 @@
   - Include branch-level markdown rendering coverage for page breaks, link rewrite suffix handling (`.md/.markdown` with query/hash), and protocol sanitization.
   - Keep regression coverage for CLI/config precedence so Commander defaults never silently override `.convpdfrc*` values when flags are omitted.
   - Keep regression coverage for math-bearing headings so TOC labels and anchor IDs remain correct (no placeholder leakage).
+  - Keep regression coverage for escaped literals: inline-code `` `<!-- PAGE_BREAK -->` `` must not trigger page breaks, and escaped dollars (`\$`) must remain literal (non-math) even when MathJax is enabled by nearby equations.
   - Keep regression coverage for header/footer PDF options so supplying only one template does not inject unexpected default content in the other region.
   - Keep regression coverage for output format behavior: `.md/.markdown` link rewrite targets (`.pdf` vs `.html`) and HTML-mode CLI output path validation/collision semantics.
 - **`examples/`**: Canonical real-world scenarios and fidelity probes used for **BOTH DOCUMENTATION AND REGRESSION TESTING**.

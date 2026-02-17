@@ -169,7 +169,11 @@ export class Renderer {
     const marked = createMarkedInstance(slugger, opts.linkTargetFormat);
 
     // Guard math content so Marked does not rewrite it.
-    const { text: safeContent, restore: restoreMath } = protectMath(content);
+    const {
+      text: safeContent,
+      restore: restoreMath,
+      restoreHtml: restoreMathHtml
+    } = protectMath(content);
     const tokens = marked.lexer(safeContent) as unknown as CustomToken[];
 
     restoreMathInHeadingTokens(tokens, restoreMath);
@@ -187,7 +191,7 @@ export class Renderer {
     const tocEnabled = opts.toc ?? frontmatterToc ?? false;
     const tocHtml = tocEnabled || hasTocPlaceholder ? generateToc(tokens, tocDepth) : '';
 
-    let html = restoreMath(marked.parser(tokens as unknown as Token[]));
+    let html = restoreMathHtml(marked.parser(tokens as unknown as Token[]));
     if (tocHtml) {
       if (html.includes('[[TOC_PLACEHOLDER]]')) {
         html = html.split('[[TOC_PLACEHOLDER]]').join(tocHtml);

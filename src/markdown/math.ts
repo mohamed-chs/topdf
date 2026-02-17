@@ -3,6 +3,7 @@ import { randomBytes } from 'crypto';
 export interface MathProtectionResult {
   text: string;
   restore: (html: string) => string;
+  restoreHtml: (html: string) => string;
 }
 
 const replaceWithPlaceholders = (
@@ -20,6 +21,7 @@ const replaceWithPlaceholders = (
 export const protectMath = (content: string): MathProtectionResult => {
   const codeGuards = new Map<string, string>();
   const mathGuards = new Map<string, string>();
+  const escapedDollarGuards = new Map<string, string>();
 
   // Fence guards first so we never interpret math inside code blocks.
   let text = replaceWithPlaceholders(
@@ -57,6 +59,9 @@ export const protectMath = (content: string): MathProtectionResult => {
     mathGuards
   );
 
+  // Escaped dollars should render as a literal "$", but must never become MathJax delimiters.
+  text = replaceWithPlaceholders(text, /\\\$/g, 'ESCAPED_DOLLAR', escapedDollarGuards);
+
   // Restore code guards before lexing markdown.
   for (const [id, code] of codeGuards) {
     text = text.split(id).join(code);
@@ -67,10 +72,26 @@ export const protectMath = (content: string): MathProtectionResult => {
     for (const [id, original] of mathGuards) {
       output = output.split(id).join(original);
     }
+    for (const id of escapedDollarGuards.keys()) {
+      output = output.split(id).join('$');
+    }
     return output;
   };
 
-  return { text, restore };
+  const restoreHtml = (html: string): string => {
+    let output = html;
+    for (const [id, original] of mathGuards) {
+      output = output.split(id).join(original);
+    }
+    for (const id of escapedDollarGuards.keys()) {
+      output = output
+        .split(id)
+        .join('<span class="convpdf-math-ignore" aria-hidden="true">&#36;</span>');
+    }
+    return output;
+  };
+
+  return { text, restore, restoreHtml };
 };
 
 export const hasMathSyntax = (content: string): boolean => {

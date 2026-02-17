@@ -94,10 +94,10 @@ export const createMarkedInstance = (
           name: 'pageBreak',
           level: 'block',
           start(source: string) {
-            return source.match(/<!--\s*PAGE_BREAK\s*-->/)?.index;
+            return source.match(/^ {0,3}<!--\s*PAGE_BREAK\s*-->[ \t]*(?:\r?\n|$)/m)?.index;
           },
           tokenizer(source: string) {
-            const match = /^<!--\s*PAGE_BREAK\s*-->/.exec(source);
+            const match = /^ {0,3}<!--\s*PAGE_BREAK\s*-->[ \t]*(?:\r?\n|$)/.exec(source);
             if (!match) return undefined;
             return { type: 'pageBreak', raw: match[0] };
           },

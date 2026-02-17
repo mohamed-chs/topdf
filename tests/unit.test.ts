@@ -104,6 +104,13 @@ describe('Renderer', () => {
     expect(html).toContain('href="./notes.pdf#frag?x=1"');
   });
 
+  it('does not treat inline-code PAGE_BREAK text as a real page break marker', async () => {
+    const html = await renderer.renderHtml('`<!-- PAGE_BREAK -->`\n\n<!-- PAGE_BREAK -->');
+    expect(html).toContain('<p><code>&lt;!-- PAGE_BREAK --&gt;</code></p>');
+    const pageBreakMatches = html.match(/<div class="page-break"><\/div>/g) ?? [];
+    expect(pageBreakMatches).toHaveLength(1);
+  });
+
   it('generates TOC for placeholders and global toc mode', async () => {
     const placeholderHtml = await renderer.renderHtml('# One\n\n[TOC]\n\n## Two\n\n[TOC]', {
       toc: true
@@ -167,6 +174,15 @@ describe('Renderer', () => {
     expect(html).toContain('c &= d');
     expect(html).toContain('$a & b$');
     expect(html).not.toContain('$a &amp; b$');
+  });
+
+  it('keeps escaped dollars literal without creating MathJax inline delimiters', async () => {
+    const html = await renderer.renderHtml('I have \\$100 and \\$50.\n\nBut $x = 5$ is math.');
+    expect(html).toContain(
+      'I have <span class="convpdf-math-ignore" aria-hidden="true">&#36;</span>100 and <span class="convpdf-math-ignore" aria-hidden="true">&#36;</span>50.'
+    );
+    expect(html).toContain('But $x = 5$ is math.');
+    expect(html).toContain("ignoreHtmlClass: 'convpdf-math-ignore'");
   });
 
   it('does not treat code blocks as math', async () => {
