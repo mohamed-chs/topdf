@@ -30,7 +30,7 @@
 - Rendering should remain automatic and syntax-driven for MathJax and Mermaid unless a future task explicitly introduces a justified user-facing control.
 - **`src/renderer.ts`**: The **ORCHESTRATOR**. Coordinates markdown parsing, HTML assembly, browser rendering, and PDF generation.
   - HTML mode should continue to use `renderHtml(...)` directly without launching a browser, while PDF mode uses Puppeteer.
-  - Rendering now uses `page.setContent(...)` with `<base href=...>` for local asset resolution; do not reintroduce temp HTML files unless a regression proves this path insufficient.
+  - PDF rendering currently navigates to a temp HTML file (`page.goto(file://...)`) with `<base href=...>` for reliable local asset resolution; preserve deterministic temp-file cleanup.
   - Dynamic content waits (images, MathJax, Mermaid) are centralized and timeout-bounded; preserve these explicit waits when adjusting rendering behavior.
 - **`src/markdown/`**: Markdown pipeline modules:
   - `frontmatter.ts` for frontmatter parsing/validation
@@ -46,7 +46,7 @@
 - **`src/styles/`**: Contains the **DESIGN DNA**. `default.css` provides the professional document layout, and `github.css` handles syntax highlighting themes.
 - **`tests/`**: The **QUALITY GATE**. Consolidated into `unit.test.ts` (logic/parsing) and `cli.test.ts` (integration/E2E).
   - CLI tests run in a shared suite-scoped temp root with per-case subdirectories; keep this pattern to reduce filesystem churn while preserving isolation.
-  - Any test asserting temp-file cleanup must scope `TMPDIR`/`TMP`/`TEMP` to a case-local directory instead of inspecting global OS temp state.
+  - Keep regression coverage that conversion leaves no `convpdf-*` temp artifacts when `TMPDIR`/`TMP`/`TEMP` are scoped to a case-local directory.
   - Keep CLI E2E execution deterministic (`describe.sequential`, color-disabled output assertions, explicit child-process timeout).
   - Include failure-path coverage for configuration and template loading (e.g., invalid config root shapes, missing header/footer/template files) with actionable message assertions.
   - Include branch-level markdown rendering coverage for page breaks, link rewrite suffix handling (`.md/.markdown` with query/hash), and protocol sanitization.

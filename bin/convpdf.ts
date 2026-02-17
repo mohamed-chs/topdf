@@ -90,8 +90,6 @@ interface InputDescriptor {
 }
 
 interface RuntimeCliOptions extends ConfigFile {
-  tocDepth?: number;
-  concurrency?: number;
   html?: boolean;
 }
 
@@ -232,24 +230,9 @@ const loadConfig = async (): Promise<LoadedConfig> => {
 };
 
 const collectDefinedOptions = (options: CliOptions): Partial<CliOptions> => {
-  const defined: Partial<CliOptions> = {};
-  if (options.output !== undefined) defined.output = options.output;
-  if (options.watch !== undefined) defined.watch = options.watch;
-  if (options.css !== undefined) defined.css = options.css;
-  if (options.template !== undefined) defined.template = options.template;
-  if (options.margin !== undefined) defined.margin = options.margin;
-  if (options.format !== undefined) defined.format = options.format;
-  if (options.header !== undefined) defined.header = options.header;
-  if (options.footer !== undefined) defined.footer = options.footer;
-  if (options.toc !== undefined) defined.toc = options.toc;
-  if (options.tocDepth !== undefined) defined.tocDepth = options.tocDepth;
-  if (options.executablePath !== undefined) defined.executablePath = options.executablePath;
-  if (options.preserveTimestamp !== undefined)
-    defined.preserveTimestamp = options.preserveTimestamp;
-  if (options.concurrency !== undefined) defined.concurrency = options.concurrency;
-  if (options.outputFormat !== undefined) defined.outputFormat = options.outputFormat;
-  if (options.html !== undefined) defined.html = options.html;
-  return defined;
+  return Object.fromEntries(
+    Object.entries(options).filter(([, value]) => value !== undefined)
+  ) as Partial<CliOptions>;
 };
 
 const resolveRuntimeOptions = (config: ConfigFile, cliOptions: CliOptions): RuntimeCliOptions => {

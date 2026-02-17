@@ -6,7 +6,7 @@ import { join, dirname, resolve } from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { tmpdir } from 'os';
 import GithubSlugger from 'github-slugger';
-import type { RendererOptions, Frontmatter, CustomToken } from './types.js';
+import type { RendererOptions, CustomToken } from './types.js';
 import { parseFrontmatter } from './markdown/frontmatter.js';
 import { protectMath, hasMathSyntax } from './markdown/math.js';
 import { hasMermaidSyntax } from './markdown/mermaid.js';
@@ -43,12 +43,6 @@ const mergeOptions = (base: RendererOptions, overrides: RendererOptions): Runtim
     margin: merged.margin ?? DEFAULT_RENDERER_OPTIONS.margin,
     format: merged.format ?? DEFAULT_RENDERER_OPTIONS.format
   };
-};
-
-const reportFrontmatterWarnings = (warnings: string[]): void => {
-  for (const warning of warnings) {
-    console.warn(warning);
-  }
 };
 
 const reorderFootnotesToEnd = (tokens: CustomToken[]): void => {
@@ -163,21 +157,13 @@ export class Renderer {
     this.browser = null;
   }
 
-  parseFrontmatter(markdown: string): { data: Frontmatter; content: string } {
-    const parsed = parseFrontmatter(markdown);
-    reportFrontmatterWarnings(parsed.warnings);
-    return { data: parsed.data, content: parsed.content };
-  }
-
-  generateToc(tokens: CustomToken[], depth = 6): string {
-    return generateToc(tokens, depth);
-  }
-
   async renderHtml(markdown: string, overrides: RendererOptions = {}): Promise<string> {
     const opts = mergeOptions(this.options, overrides);
     const parsedFrontmatter = parseFrontmatter(markdown);
     const { data, content } = parsedFrontmatter;
-    reportFrontmatterWarnings(parsedFrontmatter.warnings);
+    for (const warning of parsedFrontmatter.warnings) {
+      console.warn(warning);
+    }
 
     const slugger = new GithubSlugger();
     const marked = createMarkedInstance(slugger, opts.linkTargetFormat);
@@ -199,7 +185,7 @@ export class Renderer {
     const hasTocPlaceholder = tokens.some((token) => token.type === 'tocPlaceholder');
     const frontmatterToc = typeof data.toc === 'boolean' ? data.toc : undefined;
     const tocEnabled = opts.toc ?? frontmatterToc ?? false;
-    const tocHtml = tocEnabled || hasTocPlaceholder ? this.generateToc(tokens, tocDepth) : '';
+    const tocHtml = tocEnabled || hasTocPlaceholder ? generateToc(tokens, tocDepth) : '';
 
     let html = restoreMath(marked.parser(tokens as unknown as Token[]));
     if (tocHtml) {

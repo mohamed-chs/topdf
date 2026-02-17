@@ -26,12 +26,10 @@ describe('Renderer', () => {
     expect(renderer.options.format).toBe('A4');
   });
 
-  it('delegates frontmatter parsing and emits warnings', () => {
+  it('emits frontmatter warnings during render', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
-      const parsed = renderer.parseFrontmatter('---\nfoo: [\n---\n# Content');
-      expect(parsed.data).toEqual({});
-      expect(parsed.content).toContain('---');
+      await renderer.renderHtml('---\nfoo: [\n---\n# Content');
       expect(warn).toHaveBeenCalledTimes(1);
       expect(warn.mock.calls[0]?.[0]).toContain('Frontmatter parsing failed');
     } finally {

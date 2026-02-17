@@ -236,7 +236,7 @@ describe.sequential('CLI', () => {
   });
 
   it(
-    'cleans temporary html files after conversion (TMPDIR scoped)',
+    'leaves no convpdf temp artifacts after conversion (TMPDIR scoped)',
     { timeout: 50000 },
     async () => {
       const dir = await createCaseDir('tmp-cleanup');
