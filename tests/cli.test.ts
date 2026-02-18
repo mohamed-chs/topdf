@@ -456,4 +456,32 @@ describe.sequential('CLI', () => {
     expect(parsed.operation).toBe('clean');
     expect(parsed.cleaned).toBe(true);
   });
+
+  it('enforces strict local assets policy from config', async () => {
+    const dir = await createCaseDir('config-strict-local-assets');
+    const cacheDir = join(dir, 'cache');
+    await writeFile(join(dir, 'doc.md'), '# Offline only');
+    await writeFile(
+      join(dir, '.convpdfrc.yaml'),
+      `assetMode: local\nallowNetworkFallback: false\nassetCacheDir: ${cacheDir}\n`
+    );
+
+    const result = runCliExpectFailure(['doc.md'], { cwd: dir });
+    expect(result.combined).toContain('Local runtime assets are required but missing');
+    expect(result.combined).toContain('convpdf assets install');
+  });
+
+  it('enforces strict auto assets policy when fallback is disabled via CLI', async () => {
+    const dir = await createCaseDir('cli-strict-auto-assets');
+    const cacheDir = join(dir, 'cache');
+    await writeFile(join(dir, 'doc.md'), '# Auto strict');
+
+    const result = runCliExpectFailure(
+      ['doc.md', '--asset-mode', 'auto', '--no-asset-fallback', '--asset-cache-dir', cacheDir],
+      { cwd: dir }
+    );
+
+    expect(result.combined).toContain('Local runtime assets are required but missing');
+    expect(result.combined).toContain('convpdf assets install');
+  });
 });

@@ -28,8 +28,9 @@
   - Output strategy must stay extension-aware for both PDF and HTML modes. Single-file validation and collision checks must use the selected output format (`pdf` or `html`) consistently.
   - Watch mode must maintain output ownership state across `add/change/unlink` events to keep collision detection accurate over time.
   - Asset lifecycle commands (`convpdf assets install|verify|update|clean`) must remain deterministic and machine-readable when `--json` is requested.
-  - Asset policy options (`assetMode`, `assetCacheDir`, fallback toggles) must flow from config/CLI into renderer options without breaking CLI precedence rules.
-- Rendering should remain automatic and syntax-driven for MathJax and Mermaid unless a future task explicitly introduces a justified user-facing control.
+  - Asset policy options (`assetMode`, `assetCacheDir`, `allowNetworkFallback`) must flow from config/CLI into renderer options without breaking CLI precedence rules.
+  - `--asset-fallback/--no-asset-fallback` is only a CLI alias for `allowNetworkFallback`; keep this mapping explicit to avoid config/CLI divergence.
+- Rendering is automatic and syntax-driven for MathJax and Mermaid; keep it that way (no user-facing toggles).
 - **`src/renderer.ts`**: The **ORCHESTRATOR**. Coordinates markdown parsing, HTML assembly, browser rendering, and PDF generation.
   - HTML mode should continue to use `renderHtml(...)` directly without launching a browser, while PDF mode uses Puppeteer.
   - PDF rendering now serves an in-memory HTML document via an ephemeral localhost server (`http://127.0.0.1:<port>/document.html`) instead of `file://`; preserve deterministic server/page cleanup in success and failure paths.
@@ -37,12 +38,14 @@
   - After PDF generation, file-link annotations are rewritten from absolute `file:///...` URIs to relative paths (based on the markdown source directory) to keep outputs portable across environments.
   - Preserve rewrite support for localhost-served source links (`/__convpdf_source/...`) so PDF links stay portable.
   - Dynamic content waits (images, MathJax, Mermaid) are centralized and timeout-bounded; preserve these explicit waits when adjusting rendering behavior.
+  - Page and localhost render-server lifecycle must be deterministic even if setup fails before navigation (no leaked pages on partial initialization failures).
   - Mermaid execution should happen only after `document.fonts.ready` to minimize label clipping and layout drift in final PDFs.
 - **`src/assets/`**: Runtime asset management for offline rendering.
   - `manifest.ts` pins external runtime package versions and integrity metadata.
   - `manager.ts` handles user-cache install/verify/update/clean and archive extraction.
   - Runtime verification should validate NewCM font package structure (`chtml.js` plus non-empty `chtml/woff2`) rather than hard-coding one specific font filename.
   - `resolve.ts` maps asset policy (`auto|local|cdn`) to concrete script/font URLs (local cache, localhost-served, or CDN).
+  - `allowNetworkFallback: false` is strict for both `auto` and `local`; missing local assets must fail fast with an actionable install command.
 - **`src/markdown/`**: Markdown pipeline modules:
   - `frontmatter.ts` for frontmatter parsing/validation
   - `math.ts` for math protection/detection

@@ -77,7 +77,7 @@ export const resolveRuntimeAssetSources = async (
     };
   }
 
-  if (mode === 'local' && !allowNetworkFallback) {
+  if (!allowNetworkFallback) {
     throw new Error(
       `Local runtime assets are required but missing. Run: convpdf assets install --cache-dir "${resolveAssetCacheDir(
         input.cacheDir

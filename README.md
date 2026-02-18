@@ -78,11 +78,13 @@ By default, conversion uses `--asset-mode auto`:
 - Uses local cached assets when installed.
 - Falls back to CDN when local assets are unavailable.
 
-For strict offline behavior:
+For strict offline behavior (no CDN/network fallback at all):
 
 ```bash
 convpdf input.md --asset-mode local --no-asset-fallback
 ```
+
+`--no-asset-fallback` also applies to `--asset-mode auto`: if local runtime assets are not installed, conversion fails with an install hint instead of silently using CDN assets.
 
 ## Installation
 

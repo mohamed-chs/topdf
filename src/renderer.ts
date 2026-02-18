@@ -521,8 +521,8 @@ export class Renderer {
       content: html,
       basePath: opts.basePath,
       baseHref: opts.baseHref,
-      includeMathJax: opts.math !== false && hasMathSyntax(content),
-      includeMermaid: opts.mermaid !== false && hasMermaidSyntax(content),
+      includeMathJax: hasMathSyntax(content),
+      includeMermaid: hasMermaidSyntax(content),
       mathJaxSrc: runtimeAssets.mathJaxSrc,
       mermaidSrc: runtimeAssets.mermaidSrc,
       mathJaxBaseUrl: runtimeAssets.mathJaxBaseUrl,
@@ -544,13 +544,16 @@ export class Renderer {
 
     await mkdir(dirname(outputPath), { recursive: true });
 
-    const page = await this.browser.newPage();
-    const renderServer = await createRenderServer({
-      sourceBasePath: opts.basePath,
-      assetCacheDir: opts.assetCacheDir
-    });
+    let page: Page | null = null;
+    let renderServer: RenderHttpServer | null = null;
 
     try {
+      page = await this.browser.newPage();
+      renderServer = await createRenderServer({
+        sourceBasePath: opts.basePath,
+        assetCacheDir: opts.assetCacheDir
+      });
+
       const runtimeAssets = await resolveRuntimeAssetSources({
         mode: opts.assetMode,
         cacheDir: opts.assetCacheDir,
@@ -599,8 +602,12 @@ export class Renderer {
         await rewritePdfFileUrisToRelative(outputPath, opts.basePath, renderServer.baseUrl);
       }
     } finally {
-      await page.close().catch(() => {});
-      await renderServer.close().catch(() => {});
+      if (page) {
+        await page.close().catch(() => {});
+      }
+      if (renderServer) {
+        await renderServer.close().catch(() => {});
+      }
     }
   }
 }

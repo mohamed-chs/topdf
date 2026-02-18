@@ -24,8 +24,6 @@ export interface RendererOptions {
   format?: PaperFormatInput;
   toc?: boolean;
   tocDepth?: number;
-  math?: boolean;
-  mermaid?: boolean;
   customCss?: string | null;
   template?: string | null;
   headerTemplate?: string | null;

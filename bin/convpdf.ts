@@ -68,7 +68,7 @@ interface CliOptions {
   assetFallback?: boolean;
 }
 
-interface ConfigFile extends Omit<RendererOptions, 'math' | 'mermaid'> {
+interface ConfigFile extends RendererOptions {
   header?: string;
   footer?: string;
   css?: string;
@@ -100,7 +100,6 @@ interface InputDescriptor {
 
 interface RuntimeCliOptions extends ConfigFile {
   html?: boolean;
-  assetFallback?: boolean;
 }
 
 interface AssetsCommandOptions {
@@ -370,7 +369,13 @@ const collectDefinedOptions = (options: CliOptions): Partial<CliOptions> => {
 
 const resolveRuntimeOptions = (config: ConfigFile, cliOptions: CliOptions): RuntimeCliOptions => {
   const definedCliOptions = collectDefinedOptions(cliOptions);
-  const merged = { ...config, ...definedCliOptions };
+  const { assetFallback, ...remainingCliOptions } = definedCliOptions;
+  const merged: RuntimeCliOptions = { ...config, ...remainingCliOptions };
+
+  if (assetFallback !== undefined) {
+    merged.allowNetworkFallback = assetFallback;
+  }
+
   const outputFormat = normalizeOutputFormat(merged.outputFormat ?? 'pdf');
   merged.outputFormat = merged.html ? 'html' : outputFormat;
   if (merged.tocDepth !== undefined) {
@@ -555,7 +560,7 @@ const createRendererOptions = async (options: RuntimeCliOptions): Promise<Render
     linkTargetFormat: options.outputFormat,
     assetMode: options.assetMode,
     assetCacheDir: options.assetCacheDir,
-    allowNetworkFallback: options.assetFallback
+    allowNetworkFallback: options.allowNetworkFallback
   };
 };
 

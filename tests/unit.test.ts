@@ -87,14 +87,12 @@ describe('Renderer', () => {
     expect(mermaidOnly).toContain('<div class="mermaid">graph TD;\nA --&gt; B;</div>');
   });
 
-  it('respects explicit math/mermaid overrides', async () => {
-    const noMath = await renderer.renderHtml('$x$', { math: false });
-    expect(noMath).not.toContain('MathJax-script');
+  it('always enables math/mermaid rendering when syntax is present', async () => {
+    const withMath = await renderer.renderHtml('$x$');
+    expect(withMath).toContain('MathJax-script');
 
-    const noMermaid = await renderer.renderHtml('```mermaid\ngraph TD;\nA-->B;\n```', {
-      mermaid: false
-    });
-    expect(noMermaid).not.toContain('Mermaid-script');
+    const withMermaid = await renderer.renderHtml('```mermaid\ngraph TD;\nA-->B;\n```');
+    expect(withMermaid).toContain('Mermaid-script');
   });
 
   it('supports code highlighting, task lists, tables and footnotes', async () => {
@@ -307,6 +305,21 @@ describe('Asset resolution', () => {
       await expect(
         resolveRuntimeAssetSources({
           mode: 'local',
+          cacheDir: dir,
+          allowNetworkFallback: false
+        })
+      ).rejects.toThrow('Local runtime assets are required but missing');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('throws for strict auto mode when assets are missing and fallback is disabled', async () => {
+    const dir = await mkdtemp(resolve(tmpdir(), 'convpdf-assets-auto-strict-'));
+    try {
+      await expect(
+        resolveRuntimeAssetSources({
+          mode: 'auto',
           cacheDir: dir,
           allowNetworkFallback: false
         })
