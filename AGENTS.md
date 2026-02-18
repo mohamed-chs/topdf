@@ -34,7 +34,9 @@
   - Numeric CLI/config options that control concurrency (`concurrency`, `maxPages`, `maxConcurrentPages`) must fail fast on invalid/non-positive/out-of-range values instead of degrading into `NaN`/implicit clamping behavior.
   - Asset subcommand option parsing must support both `--cache-dir <path>` and `--cache-dir=<path>` forms.
   - Input paths containing literal parentheses (for example `spec (draft).md`) must be treated as regular file paths, not glob-magic patterns.
+  - Existing file inputs with literal glob-like characters (`[]`, `{}`, `*`, `?`) must be treated as explicit file paths for output-strategy validation and watch-mode ownership.
   - Watch mode should start even when the initial input expansion is empty, then process future `add/change` events as files appear.
+  - Watch mode must only react to markdown files that match the original user inputs (file, directory, or glob), never broad parent-directory spillover.
   - `convpdf assets --help` must print deterministic operation/option usage text and exit successfully.
 - Rendering is automatic and syntax-driven for MathJax and Mermaid; keep it that way (no user-facing toggles).
 - **`src/renderer.ts`**: The **ORCHESTRATOR**. Coordinates markdown parsing, HTML assembly, browser rendering, and PDF generation.

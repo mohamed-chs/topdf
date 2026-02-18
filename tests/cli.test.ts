@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { existsSync } from 'fs';
-import { execFileSync, spawnSync } from 'child_process';
+import { execFileSync, spawn, spawnSync } from 'child_process';
 import { join, resolve } from 'path';
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
@@ -17,6 +17,22 @@ interface CliResult {
   stderr: string;
   combined: string;
 }
+
+const waitForCondition = async (
+  condition: () => boolean,
+  timeoutMs = 7000,
+  pollMs = 50
+): Promise<void> => {
+  const startedAt = Date.now();
+  while (!condition()) {
+    if (Date.now() - startedAt > timeoutMs) {
+      throw new Error(`Timed out waiting for condition after ${timeoutMs}ms`);
+    }
+    await new Promise<void>((resolveWait) => {
+      setTimeout(resolveWait, pollMs);
+    });
+  }
+};
 
 const runCli = (args: string[], options: CliRunOptions): CliResult => {
   const result = spawnSync('node', [bin, ...args], {
@@ -466,6 +482,15 @@ describe.sequential('CLI', () => {
     expect(existsSync(join(dir, 'out.pdf'))).toBe(true);
   });
 
+  it('treats literal glob-like characters in filenames as direct file inputs', async () => {
+    const dir = await createCaseDir('literal-glob-chars');
+    await writeFile(join(dir, 'spec [draft].md'), '# Spec');
+
+    runCli(['spec [draft].md', '-o', 'out.pdf'], { cwd: dir });
+
+    expect(existsSync(join(dir, 'out.pdf'))).toBe(true);
+  });
+
   it('starts watch mode even when no markdown files exist initially', async () => {
     const dir = await createCaseDir('watch-empty-start');
     await mkdir(join(dir, 'docs'), { recursive: true });
@@ -481,6 +506,58 @@ describe.sequential('CLI', () => {
     expect(combined).toContain('No input markdown files found yet. Watching for new files');
     expect(combined).toContain('Watching for changes... (Press Ctrl+C to stop)');
   });
+
+  it(
+    'watch mode only reacts to files that match the original glob',
+    { timeout: 25000 },
+    async () => {
+      const dir = await createCaseDir('watch-glob-boundary');
+      await mkdir(join(dir, 'docs', 'sub'), { recursive: true });
+
+      const child = spawn('node', [bin, 'docs/*.md', '--watch', '--html', '-o', 'out'], {
+        cwd: dir,
+        env: { ...process.env, NO_COLOR: '1', FORCE_COLOR: '0' }
+      });
+
+      let combined = '';
+      child.stdout?.on('data', (chunk: Buffer) => {
+        combined += chunk.toString('utf-8');
+      });
+      child.stderr?.on('data', (chunk: Buffer) => {
+        combined += chunk.toString('utf-8');
+      });
+
+      try {
+        await waitForCondition(() => combined.includes('Watching for changes...'), 10000);
+
+        await writeFile(join(dir, 'docs', 'sub', 'skip.md'), '# Skip');
+        await new Promise<void>((resolveDelay) => {
+          setTimeout(resolveDelay, 1200);
+        });
+
+        expect(existsSync(join(dir, 'out', 'sub', 'skip.html'))).toBe(false);
+        expect(combined).not.toContain('docs/sub/skip.md');
+
+        await writeFile(join(dir, 'docs', 'match.md'), '# Match');
+        await waitForCondition(() => existsSync(join(dir, 'out', 'match.html')), 10000);
+        expect(combined).toContain('docs/match.md');
+      } finally {
+        child.kill('SIGINT');
+        await new Promise<void>((resolveDone) => {
+          const timer = setTimeout(() => {
+            if (!child.killed) {
+              child.kill('SIGKILL');
+            }
+            resolveDone();
+          }, 5000);
+          child.once('exit', () => {
+            clearTimeout(timer);
+            resolveDone();
+          });
+        });
+      }
+    }
+  );
 
   it(
     'preserves file timestamps when --preserve-timestamp is used',

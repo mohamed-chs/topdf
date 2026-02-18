@@ -8,6 +8,7 @@ import chokidar, { type FSWatcher } from 'chokidar';
 import cliProgress from 'cli-progress';
 import { glob } from 'glob';
 import yaml from 'js-yaml';
+import { minimatch } from 'minimatch';
 import pLimit from 'p-limit';
 import { Renderer } from '../src/renderer.js';
 import {
@@ -97,8 +98,7 @@ interface OutputStrategy {
 interface InputDescriptor {
   raw: string;
   absolute: string;
-  hasGlobMagic: boolean;
-  isDirectory: boolean;
+  kind: 'file' | 'directory' | 'pattern';
 }
 
 interface RuntimeCliOptions extends ConfigFile {
@@ -286,10 +286,18 @@ const getGlobParent = (pattern: string): string => {
   return resolve(current);
 };
 
+const isCaseInsensitiveFs = process.platform === 'win32' || process.platform === 'darwin';
+const toPosixPath = (value: string): string => value.split('\\').join('/');
+const pathIsWithin = (basePath: string, targetPath: string): boolean => {
+  const relPath = relative(basePath, targetPath);
+  if (!relPath) return true;
+  return !relPath.startsWith('..') && !/^(?:[a-zA-Z]:)?[/\\]/.test(relPath);
+};
+
 const findBasePathForFile = (absoluteFilePath: string, inputs: InputDescriptor[]): string => {
   const parents = inputs.map((input) => {
-    if (input.isDirectory) return input.absolute;
-    if (input.hasGlobMagic) return getGlobParent(input.raw);
+    if (input.kind === 'directory') return input.absolute;
+    if (input.kind === 'pattern') return getGlobParent(input.raw);
     return dirname(input.absolute);
   });
 
@@ -432,18 +440,30 @@ const describeInputs = async (inputs: string[]): Promise<InputDescriptor[]> =>
       const absolute = resolve(raw);
       try {
         const stats = await stat(absolute);
+        if (stats.isFile()) {
+          return {
+            raw,
+            absolute,
+            kind: 'file'
+          };
+        }
+        if (stats.isDirectory()) {
+          return {
+            raw,
+            absolute,
+            kind: 'directory'
+          };
+        }
         return {
           raw,
           absolute,
-          hasGlobMagic: hasGlobMagic(raw),
-          isDirectory: stats.isDirectory()
+          kind: hasGlobMagic(raw) ? 'pattern' : 'file'
         };
       } catch {
         return {
           raw,
           absolute,
-          hasGlobMagic: hasGlobMagic(raw),
-          isDirectory: false
+          kind: hasGlobMagic(raw) ? 'pattern' : 'file'
         };
       }
     })
@@ -452,20 +472,26 @@ const describeInputs = async (inputs: string[]): Promise<InputDescriptor[]> =>
 const resolveMarkdownFiles = async (inputs: InputDescriptor[]): Promise<string[]> => {
   const matches = await Promise.all(
     inputs.map(async (input) => {
-      try {
-        const stats = await stat(input.absolute);
-        if (stats.isFile()) {
-          return [input.absolute];
+      if (input.kind === 'file') {
+        try {
+          const stats = await stat(input.absolute);
+          if (stats.isFile()) return [input.absolute];
+        } catch {
+          // Missing files are allowed when running in watch mode.
         }
-        if (stats.isDirectory()) {
+        return [];
+      }
+
+      if (input.kind === 'directory') {
+        try {
           return glob('**/*.{md,markdown}', {
             cwd: input.absolute,
             nodir: true,
             absolute: true
           });
+        } catch {
+          return [];
         }
-      } catch {
-        // Treat as glob expression if direct path resolution fails.
       }
 
       return glob(input.raw, { nodir: true, absolute: true });
@@ -475,6 +501,41 @@ const resolveMarkdownFiles = async (inputs: InputDescriptor[]): Promise<string[]
   return [
     ...new Set(matches.flat().filter((pathValue) => /\.(md|markdown)$/i.test(pathValue)))
   ].sort((a, b) => a.localeCompare(b));
+};
+
+const createInputMatcher = (inputs: InputDescriptor[]): ((candidatePath: string) => boolean) => {
+  const explicitFiles = new Set(
+    inputs
+      .filter((input) => input.kind === 'file')
+      .map((input) => (isCaseInsensitiveFs ? input.absolute.toLowerCase() : input.absolute))
+  );
+  const directories = inputs
+    .filter((input) => input.kind === 'directory')
+    .map((input) => input.absolute);
+  const patternMatchers = inputs
+    .filter((input) => input.kind === 'pattern')
+    .map((input) => toPosixPath(resolve(input.raw)));
+
+  return (candidatePath: string): boolean => {
+    const absoluteCandidate = resolve(candidatePath);
+    const normalizedCandidate = isCaseInsensitiveFs
+      ? absoluteCandidate.toLowerCase()
+      : absoluteCandidate;
+
+    if (explicitFiles.has(normalizedCandidate)) return true;
+    if (directories.some((directoryPath) => pathIsWithin(directoryPath, absoluteCandidate))) {
+      return true;
+    }
+
+    const posixCandidate = toPosixPath(absoluteCandidate);
+    return patternMatchers.some((pattern) =>
+      minimatch(posixCandidate, pattern, {
+        dot: true,
+        nocase: isCaseInsensitiveFs,
+        windowsPathsNoEscape: true
+      })
+    );
+  };
 };
 
 const resolveOutputStrategy = (
@@ -491,8 +552,7 @@ const resolveOutputStrategy = (
     return { mode: 'directory', targetPath: absoluteOutput, outputFormat };
   }
 
-  const maybeMultiple =
-    inputs.length > 1 || inputs.some((input) => input.isDirectory || input.hasGlobMagic);
+  const maybeMultiple = inputs.length > 1 || inputs.some((input) => input.kind !== 'file');
   if (maybeMultiple) {
     throw new Error(
       `Output path cannot be a single .${outputFormat} file when inputs can expand to multiple markdown files.`
@@ -711,12 +771,10 @@ const runConvertCli = async (): Promise<void> => {
         }
 
         const outputOwners = buildOutputOwners(files, outputStrategy, describedInputs);
+        const matchesUserInputs = createInputMatcher(describedInputs);
         const firstInput = describedInputs[0];
         const singleInput =
-          describedInputs.length === 1 &&
-          firstInput &&
-          !firstInput.isDirectory &&
-          !firstInput.hasGlobMagic
+          describedInputs.length === 1 && firstInput && firstInput.kind === 'file'
             ? firstInput.absolute
             : null;
 
@@ -842,7 +900,7 @@ const runConvertCli = async (): Promise<void> => {
         console.log(chalk.yellow('\nWatching for changes... (Press Ctrl+C to stop)'));
         const queue = new ConversionQueue(limit);
         const watchTargets = describedInputs.map((input) =>
-          input.hasGlobMagic ? getGlobParent(input.raw) : input.absolute
+          input.kind === 'pattern' ? getGlobParent(input.raw) : input.absolute
         );
         watcher = chokidar.watch(watchTargets, {
           ignored: /(^|[\/\\])\../,
@@ -856,6 +914,9 @@ const runConvertCli = async (): Promise<void> => {
           }
 
           const absoluteChangedPath = resolve(changedPath);
+          if (!matchesUserInputs(absoluteChangedPath)) {
+            return;
+          }
 
           if (event === 'unlink') {
             try {
