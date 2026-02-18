@@ -17,7 +17,6 @@ export interface RuntimeAssetResolution {
   mermaidSrc: string;
   mathJaxBaseUrl?: string;
   mathJaxFontBaseUrl?: string;
-  usingLocalAssets: boolean;
   warning?: string;
 }
 
@@ -49,8 +48,7 @@ export const resolveRuntimeAssetSources = async (
   if (mode === 'cdn') {
     return {
       mathJaxSrc: CDN_MATHJAX_SRC,
-      mermaidSrc: CDN_MERMAID_SRC,
-      usingLocalAssets: false
+      mermaidSrc: CDN_MERMAID_SRC
     };
   }
 
@@ -59,7 +57,7 @@ export const resolveRuntimeAssetSources = async (
     const paths = getRuntimeAssetPaths(input.cacheDir);
     if (input.serverBaseUrl) {
       const urls = toServerRuntimeUrls(input.serverBaseUrl);
-      return { ...urls, usingLocalAssets: true };
+      return urls;
     }
 
     const mathJaxSrc = pathToFileURL(paths.mathJaxPath).href;
@@ -68,8 +66,7 @@ export const resolveRuntimeAssetSources = async (
       mathJaxSrc,
       mermaidSrc,
       mathJaxBaseUrl: mathJaxSrc.replace(/\/tex-chtml\.js$/, ''),
-      mathJaxFontBaseUrl: trimTrailingSlash(pathToFileURL(paths.mathJaxFontDir).href),
-      usingLocalAssets: true
+      mathJaxFontBaseUrl: trimTrailingSlash(pathToFileURL(paths.mathJaxFontDir).href)
     };
   }
 
@@ -89,7 +86,6 @@ export const resolveRuntimeAssetSources = async (
   return {
     mathJaxSrc: CDN_MATHJAX_SRC,
     mermaidSrc: CDN_MERMAID_SRC,
-    usingLocalAssets: false,
     warning: allowNetworkFallback ? warning : undefined
   };
 };

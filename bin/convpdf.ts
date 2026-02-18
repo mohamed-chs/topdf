@@ -215,62 +215,51 @@ const runAssetsCommand = async (args: string[]): Promise<void> => {
 
   const { operation, options } = parseAssetsCommandArgs(args);
   const cacheDir = options.cacheDir;
-
-  if (operation === 'install') {
-    const result = await installRuntimeAssets(cacheDir, options.force ?? false);
+  const cacheRoot = resolveAssetCacheDir(cacheDir);
+  const print = (jsonValue: object, textValue: string): void => {
     if (options.json) {
-      console.log(
-        JSON.stringify({ operation, ...result, cacheDir: resolveAssetCacheDir(cacheDir) })
-      );
+      console.log(JSON.stringify(jsonValue));
       return;
     }
-    console.log(
-      chalk.green(
+    console.log(chalk.green(textValue));
+  };
+
+  switch (operation) {
+    case 'install': {
+      const result = await installRuntimeAssets(cacheDir, options.force ?? false);
+      print(
+        { operation, ...result, cacheDir: cacheRoot },
         result.installed
           ? `Assets installed at ${result.runtimeDir}`
           : `Assets already installed at ${result.runtimeDir}`
-      )
-    );
-    return;
-  }
-
-  if (operation === 'verify') {
-    const paths = await verifyRuntimeAssets(cacheDir);
-    if (options.json) {
-      console.log(JSON.stringify({ operation, ok: true, runtimeDir: paths.runtimeDir }));
-      return;
-    }
-    console.log(chalk.green(`Assets verified at ${paths.runtimeDir}`));
-    return;
-  }
-
-  if (operation === 'update') {
-    const result = await installRuntimeAssets(cacheDir, true);
-    if (options.json) {
-      console.log(
-        JSON.stringify({ operation, ...result, cacheDir: resolveAssetCacheDir(cacheDir) })
       );
       return;
     }
-    console.log(chalk.green(`Assets refreshed at ${result.runtimeDir}`));
-    return;
-  }
-
-  if (operation === 'clean') {
-    await cleanRuntimeAssets(cacheDir);
-    if (options.json) {
-      console.log(
-        JSON.stringify({ operation, cleaned: true, cacheDir: resolveAssetCacheDir(cacheDir) })
+    case 'verify': {
+      const paths = await verifyRuntimeAssets(cacheDir);
+      print(
+        { operation, ok: true, runtimeDir: paths.runtimeDir },
+        `Assets verified at ${paths.runtimeDir}`
       );
       return;
     }
-    console.log(chalk.green(`Assets removed from ${resolveAssetCacheDir(cacheDir)}`));
-    return;
+    case 'update': {
+      const result = await installRuntimeAssets(cacheDir, true);
+      print(
+        { operation, ...result, cacheDir: cacheRoot },
+        `Assets refreshed at ${result.runtimeDir}`
+      );
+      return;
+    }
+    case 'clean':
+      await cleanRuntimeAssets(cacheDir);
+      print({ operation, cleaned: true, cacheDir: cacheRoot }, `Assets removed from ${cacheRoot}`);
+      return;
+    default:
+      throw new Error(
+        `Unknown assets operation "${operation}". Use: install, verify, update, or clean.`
+      );
   }
-
-  throw new Error(
-    `Unknown assets operation "${operation}". Use: install, verify, update, or clean.`
-  );
 };
 
 const hasGlobMagic = (value: string): boolean => /[*?[\]{}]/.test(value);
@@ -306,9 +295,7 @@ const findBasePathForFile = (absoluteFilePath: string, inputs: InputDescriptor[]
   );
 
   for (const parent of uniqueParents) {
-    const relPath = relative(parent, absoluteFilePath);
-    if (!relPath) return parent;
-    if (!relPath.startsWith('..') && !/^(?:[a-zA-Z]:)?[/\\]/.test(relPath)) {
+    if (pathIsWithin(parent, absoluteFilePath)) {
       return parent;
     }
   }
@@ -374,12 +361,7 @@ const loadConfig = async (): Promise<LoadedConfig> => {
         throw new Error(`Expected object at root of config, got ${typeof parsed}`);
       }
 
-      const config = parsed as ConfigFile & { math?: unknown; mermaid?: unknown };
-      if ('math' in config || 'mermaid' in config) {
-        throw new Error(
-          'The "math" and "mermaid" config keys are no longer supported. Rendering is now automatic when syntax is detected.'
-        );
-      }
+      const config = parsed as ConfigFile;
 
       if (config.assetMode !== undefined) {
         config.assetMode = normalizeAssetMode(config.assetMode);
@@ -605,8 +587,7 @@ const resolveOutputPathForInput = (
 ): string => toOutputPath(inputPath, strategy, findBasePathForFile(inputPath, inputs));
 
 const getOutputCollisionKey = (outputPath: string): string => {
-  const isCaseInsensitive = process.platform === 'win32' || process.platform === 'darwin';
-  return isCaseInsensitive ? outputPath.toLowerCase() : outputPath;
+  return isCaseInsensitiveFs ? outputPath.toLowerCase() : outputPath;
 };
 
 const buildOutputOwners = (

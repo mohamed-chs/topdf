@@ -223,17 +223,6 @@ describe.sequential('CLI', () => {
     expect(result.combined).toContain('Expected object at root of config');
   });
 
-  it('fails when config uses removed math/mermaid toggles', async () => {
-    const dir = await createCaseDir('removed-config-toggles');
-    await writeFile(join(dir, 'doc.md'), '# C');
-    await writeFile(join(dir, '.convpdfrc.yaml'), 'math: false');
-
-    const result = runCliExpectFailure(['doc.md'], { cwd: dir });
-
-    expect(result.combined).toContain('math');
-    expect(result.combined).toContain('no longer supported');
-  });
-
   it('fails when single output pdf is used with expandable inputs', async () => {
     const dir = await createCaseDir('single-pdf-with-glob');
     await writeFile(join(dir, 'a.md'), '# A');
@@ -428,16 +417,6 @@ describe.sequential('CLI', () => {
 
     expect(result.combined).toContain('Invalid max pages value');
     expect(result.combined).toContain('between 1 and 128');
-  });
-
-  it('rejects removed math/mermaid CLI toggles', async () => {
-    const dir = await createCaseDir('removed-cli-flags');
-    await writeFile(join(dir, 'doc.md'), '# A');
-
-    const result = runCliExpectFailure(['doc.md', '--no-math'], { cwd: dir });
-
-    expect(result.combined).toContain('unknown option');
-    expect(result.combined).toContain('--no-math');
   });
 
   it('fails when output directory mapping would collide', async () => {

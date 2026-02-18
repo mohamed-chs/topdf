@@ -59,19 +59,6 @@ interface RenderHttpServer {
   close: () => Promise<void>;
 }
 
-interface RuntimeFeatureUsage {
-  math: boolean;
-  mermaid: boolean;
-}
-
-interface RuntimeAssetPlan {
-  mathJaxSrc?: string;
-  mermaidSrc?: string;
-  mathJaxBaseUrl?: string;
-  mathJaxFontBaseUrl?: string;
-  warning?: string;
-}
-
 const MIME_TYPES: Readonly<Record<string, string>> = {
   '.html': 'text/html; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
@@ -106,16 +93,17 @@ const mergeOptions = (base: RendererOptions, overrides: RendererOptions): Runtim
   };
 };
 
-const detectRuntimeFeatureUsage = (markdown: string): RuntimeFeatureUsage => ({
-  math: hasMathSyntax(markdown),
-  mermaid: hasMermaidSyntax(markdown)
-});
-
 const resolveRuntimeAssetPlan = async (
   opts: RuntimeRenderOptions,
-  usage: RuntimeFeatureUsage,
+  usage: { math: boolean; mermaid: boolean },
   serverBaseUrl?: string
-): Promise<RuntimeAssetPlan> => {
+): Promise<{
+  mathJaxSrc?: string;
+  mermaidSrc?: string;
+  mathJaxBaseUrl?: string;
+  mathJaxFontBaseUrl?: string;
+  warning?: string;
+}> => {
   if (!usage.math && !usage.mermaid) {
     return {};
   }
@@ -598,7 +586,7 @@ export class Renderer {
           ? data.title
           : 'Markdown Document';
 
-    const runtimeUsage = detectRuntimeFeatureUsage(content);
+    const runtimeUsage = { math: hasMathSyntax(content), mermaid: hasMermaidSyntax(content) };
     const runtimeAssets = await resolveRuntimeAssetPlan(opts, runtimeUsage);
 
     if (runtimeAssets.warning) {
@@ -645,7 +633,7 @@ export class Renderer {
         assetCacheDir: opts.assetCacheDir
       });
 
-      const runtimeUsage = detectRuntimeFeatureUsage(markdown);
+      const runtimeUsage = { math: hasMathSyntax(markdown), mermaid: hasMermaidSyntax(markdown) };
       const runtimeAssets = await resolveRuntimeAssetPlan(opts, runtimeUsage, renderServer.baseUrl);
       if (runtimeAssets.warning) {
         console.warn(runtimeAssets.warning);

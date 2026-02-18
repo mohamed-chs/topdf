@@ -373,7 +373,6 @@ describe('Asset resolution', () => {
     const resolved = await resolveRuntimeAssetSources({ mode: 'cdn' });
     expect(resolved.mathJaxSrc).toBe(CDN_MATHJAX_SRC);
     expect(resolved.mermaidSrc).toBe(CDN_MERMAID_SRC);
-    expect(resolved.usingLocalAssets).toBe(false);
   });
 
   it('throws for strict local mode when assets are missing', async () => {

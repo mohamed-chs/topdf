@@ -35,7 +35,6 @@ const INSTALL_LOCK_WAIT_MS = 120000;
 const INSTALL_LOCK_STALE_MS = 10 * 60 * 1000;
 const LOCK_POLL_INTERVAL_MS = 250;
 
-const normalizePath = (pathValue: string): string => resolve(pathValue);
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolveSleep) => {
     setTimeout(resolveSleep, ms);
@@ -78,7 +77,7 @@ const hasFile = async (pathValue: string): Promise<boolean> => {
 
 const defaultCacheRoot = (): string => {
   const custom = process.env.CONVPDF_CACHE_DIR;
-  if (custom) return normalizePath(custom);
+  if (custom) return resolve(custom);
 
   if (process.platform === 'win32') {
     const appData = process.env.LOCALAPPDATA ?? process.env.APPDATA;
@@ -99,7 +98,7 @@ const runtimeDirFor = (cacheRoot: string): string =>
   join(cacheRoot, `runtime-${ASSET_SCHEMA_VERSION}`);
 
 const resolveRuntimePaths = (cacheRootInput?: string): RuntimeAssetPaths => {
-  const cacheRoot = normalizePath(cacheRootInput ?? defaultCacheRoot());
+  const cacheRoot = resolve(cacheRootInput ?? defaultCacheRoot());
   const runtimeDir = runtimeDirFor(cacheRoot);
   return {
     cacheRoot,
