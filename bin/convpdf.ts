@@ -304,6 +304,13 @@ const normalizeMaxConcurrentPages = (value: number): number => {
   return Math.min(value, 128);
 };
 
+const normalizeConcurrency = (value: unknown): number => {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
+    throw new Error(`Invalid concurrency value "${String(value)}". Expected an integer >= 1.`);
+  }
+  return value;
+};
+
 const normalizeOutputFormat = (format: unknown): OutputFormat => {
   if (typeof format !== 'string') {
     throw new Error(`Invalid output format "${String(format)}". Expected "pdf" or "html".`);
@@ -399,6 +406,9 @@ const resolveRuntimeOptions = (config: ConfigFile, cliOptions: CliOptions): Runt
   }
   if (merged.maxPages !== undefined) {
     merged.maxConcurrentPages = normalizeMaxConcurrentPages(merged.maxPages);
+  }
+  if (merged.concurrency !== undefined) {
+    merged.concurrency = normalizeConcurrency(merged.concurrency);
   }
   return merged;
 };

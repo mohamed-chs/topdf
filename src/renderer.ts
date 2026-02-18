@@ -54,6 +54,19 @@ interface RenderHttpServer {
   close: () => Promise<void>;
 }
 
+interface RuntimeFeatureUsage {
+  math: boolean;
+  mermaid: boolean;
+}
+
+interface RuntimeAssetPlan {
+  mathJaxSrc?: string;
+  mermaidSrc?: string;
+  mathJaxBaseUrl?: string;
+  mathJaxFontBaseUrl?: string;
+  warning?: string;
+}
+
 const MIME_TYPES: Readonly<Record<string, string>> = {
   '.html': 'text/html; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
@@ -85,6 +98,47 @@ const mergeOptions = (base: RendererOptions, overrides: RendererOptions): Runtim
     allowNetworkFallback:
       merged.allowNetworkFallback ?? DEFAULT_RENDERER_OPTIONS.allowNetworkFallback,
     maxConcurrentPages
+  };
+};
+
+const detectRuntimeFeatureUsage = (markdown: string): RuntimeFeatureUsage => ({
+  math: hasMathSyntax(markdown),
+  mermaid: hasMermaidSyntax(markdown)
+});
+
+const resolveRuntimeAssetPlan = async (
+  opts: RuntimeRenderOptions,
+  usage: RuntimeFeatureUsage,
+  serverBaseUrl?: string
+): Promise<RuntimeAssetPlan> => {
+  if (!usage.math && !usage.mermaid) {
+    return {};
+  }
+
+  const needsMathAssetResolution = usage.math && !opts.mathJaxSrc;
+  const needsMermaidAssetResolution = usage.mermaid && !opts.mermaidSrc;
+  if (!needsMathAssetResolution && !needsMermaidAssetResolution) {
+    return {
+      mathJaxSrc: opts.mathJaxSrc,
+      mermaidSrc: opts.mermaidSrc,
+      mathJaxBaseUrl: opts.mathJaxBaseUrl,
+      mathJaxFontBaseUrl: opts.mathJaxFontBaseUrl
+    };
+  }
+
+  const resolved = await resolveRuntimeAssetSources({
+    mode: opts.assetMode,
+    cacheDir: opts.assetCacheDir,
+    allowNetworkFallback: opts.allowNetworkFallback,
+    serverBaseUrl
+  });
+
+  return {
+    mathJaxSrc: opts.mathJaxSrc ?? resolved.mathJaxSrc,
+    mermaidSrc: opts.mermaidSrc ?? resolved.mermaidSrc,
+    mathJaxBaseUrl: opts.mathJaxBaseUrl ?? resolved.mathJaxBaseUrl,
+    mathJaxFontBaseUrl: opts.mathJaxFontBaseUrl ?? resolved.mathJaxFontBaseUrl,
+    warning: resolved.warning
   };
 };
 
@@ -539,20 +593,8 @@ export class Renderer {
           ? data.title
           : 'Markdown Document';
 
-    const runtimeAssets =
-      opts.mathJaxSrc && opts.mermaidSrc
-        ? {
-            mathJaxSrc: opts.mathJaxSrc,
-            mermaidSrc: opts.mermaidSrc,
-            mathJaxBaseUrl: opts.mathJaxBaseUrl,
-            mathJaxFontBaseUrl: opts.mathJaxFontBaseUrl,
-            warning: undefined
-          }
-        : await resolveRuntimeAssetSources({
-            mode: opts.assetMode,
-            cacheDir: opts.assetCacheDir,
-            allowNetworkFallback: opts.allowNetworkFallback
-          });
+    const runtimeUsage = detectRuntimeFeatureUsage(content);
+    const runtimeAssets = await resolveRuntimeAssetPlan(opts, runtimeUsage);
 
     if (runtimeAssets.warning) {
       console.warn(runtimeAssets.warning);
@@ -565,8 +607,8 @@ export class Renderer {
       content: html,
       basePath: opts.basePath,
       baseHref: opts.baseHref,
-      includeMathJax: hasMathSyntax(content),
-      includeMermaid: hasMermaidSyntax(content),
+      includeMathJax: runtimeUsage.math,
+      includeMermaid: runtimeUsage.mermaid,
       mathJaxSrc: runtimeAssets.mathJaxSrc,
       mermaidSrc: runtimeAssets.mermaidSrc,
       mathJaxBaseUrl: runtimeAssets.mathJaxBaseUrl,
@@ -598,12 +640,8 @@ export class Renderer {
         assetCacheDir: opts.assetCacheDir
       });
 
-      const runtimeAssets = await resolveRuntimeAssetSources({
-        mode: opts.assetMode,
-        cacheDir: opts.assetCacheDir,
-        allowNetworkFallback: opts.allowNetworkFallback,
-        serverBaseUrl: renderServer.baseUrl
-      });
+      const runtimeUsage = detectRuntimeFeatureUsage(markdown);
+      const runtimeAssets = await resolveRuntimeAssetPlan(opts, runtimeUsage, renderServer.baseUrl);
       if (runtimeAssets.warning) {
         console.warn(runtimeAssets.warning);
       }

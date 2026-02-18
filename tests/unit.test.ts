@@ -110,6 +110,17 @@ describe('Renderer', () => {
     expect(withMermaid).toContain('Mermaid-script');
   });
 
+  it('does not require runtime assets when markdown has no math or mermaid syntax', async () => {
+    const strictRenderer = new Renderer({
+      assetMode: 'local',
+      allowNetworkFallback: false,
+      assetCacheDir: resolve(tmpdir(), `convpdf-missing-assets-${Date.now()}`)
+    });
+    await expect(strictRenderer.renderHtml('# Plain document')).resolves.toContain(
+      '<h1 id="plain-document">Plain document</h1>'
+    );
+  });
+
   it('supports code highlighting, task lists, tables and footnotes', async () => {
     const html = await renderer.renderHtml(
       '```js\nconst x = 1;\n```\n\n- [x] done\n\n| A | B |\n|:-|-:|\n| 1 | 2 |\n\nRef[^1]\n\n[^1]: note'

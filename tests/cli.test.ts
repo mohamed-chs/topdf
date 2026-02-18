@@ -470,7 +470,7 @@ describe.sequential('CLI', () => {
   it('enforces strict local assets policy from config', async () => {
     const dir = await createCaseDir('config-strict-local-assets');
     const cacheDir = join(dir, 'cache');
-    await writeFile(join(dir, 'doc.md'), '# Offline only');
+    await writeFile(join(dir, 'doc.md'), '# Offline only\n\n$x = 1$');
     await writeFile(
       join(dir, '.convpdfrc.yaml'),
       `assetMode: local\nallowNetworkFallback: false\nassetCacheDir: ${cacheDir}\n`
@@ -481,10 +481,24 @@ describe.sequential('CLI', () => {
     expect(result.combined).toContain('convpdf assets install');
   });
 
+  it('allows strict local assets policy when the document does not need runtime assets', async () => {
+    const dir = await createCaseDir('config-strict-local-assets-no-runtime');
+    const cacheDir = join(dir, 'cache');
+    await writeFile(join(dir, 'doc.md'), '# Offline plain text');
+    await writeFile(
+      join(dir, '.convpdfrc.yaml'),
+      `assetMode: local\nallowNetworkFallback: false\nassetCacheDir: ${cacheDir}\n`
+    );
+
+    runCli(['doc.md'], { cwd: dir });
+
+    expect(existsSync(join(dir, 'doc.pdf'))).toBe(true);
+  });
+
   it('enforces strict auto assets policy when fallback is disabled via CLI', async () => {
     const dir = await createCaseDir('cli-strict-auto-assets');
     const cacheDir = join(dir, 'cache');
-    await writeFile(join(dir, 'doc.md'), '# Auto strict');
+    await writeFile(join(dir, 'doc.md'), '# Auto strict\n\n```mermaid\ngraph TD;\nA --> B;\n```');
 
     const result = runCliExpectFailure(
       ['doc.md', '--asset-mode', 'auto', '--no-asset-fallback', '--asset-cache-dir', cacheDir],
@@ -493,5 +507,15 @@ describe.sequential('CLI', () => {
 
     expect(result.combined).toContain('Local runtime assets are required but missing');
     expect(result.combined).toContain('convpdf assets install');
+  });
+
+  it('fails fast on invalid concurrency type from config', async () => {
+    const dir = await createCaseDir('invalid-concurrency-type');
+    await writeFile(join(dir, 'doc.md'), '# C');
+    await writeFile(join(dir, '.convpdfrc.yaml'), 'concurrency: "many"\n');
+
+    const result = runCliExpectFailure(['doc.md'], { cwd: dir });
+
+    expect(result.combined).toContain('Invalid concurrency value');
   });
 });

@@ -40,7 +40,7 @@ convpdf assets install
 - `--output-format <format>`: Output format (`pdf` or `html`, default: `pdf`).
 - `--html`: Shortcut for `--output-format html`.
 - `-w, --watch`: Watch for changes.
-- `-j, --concurrency <number>`: Number of concurrent conversions (default: 5, max: 32).
+- `-j, --concurrency <number>`: Number of concurrent conversions (integer >= 1, default: 5, max: 32).
 - `-c, --css <path>`: Custom CSS file.
 - `-t, --template <path>`: Custom HTML template.
 - `-m, --margin <margin>`: Page margin (default: 15mm 10mm).
@@ -59,6 +59,7 @@ convpdf assets install
 ## Offline Runtime Assets
 
 `convpdf` can run fully offline for MathJax and Mermaid by installing runtime assets into a user cache.
+These assets are only required when a document actually uses MathJax (`$...$`, `$$...$$`, `\\(...\\)`, `\\[...\\]`) or Mermaid fences.
 
 ```bash
 # Install pinned runtime assets
