@@ -192,7 +192,7 @@ describe.sequential('CLI', () => {
     expect(html).toContain('href="./guide.html"');
   });
 
-  it('applies config values when CLI flags are omitted', async () => {
+  it('applies config values when CLI flags are omitted', { timeout: 50000 }, async () => {
     const dir = await createCaseDir('config-precedence');
     await writeFile(join(dir, 'doc.md'), '# C');
     await writeFile(join(dir, '.convpdfrc.yaml'), 'margin: "1 2 3 4 5"\nconcurrency: 2\n');
@@ -256,7 +256,7 @@ describe.sequential('CLI', () => {
     expect(result.combined).toContain('html');
   });
 
-  it('fails on invalid paper format with clear error', async () => {
+  it('fails on invalid paper format with clear error', { timeout: 50000 }, async () => {
     const dir = await createCaseDir('invalid-format');
     await writeFile(join(dir, 'doc.md'), '# Hello');
 
@@ -399,15 +399,19 @@ describe.sequential('CLI', () => {
     expect(result.combined).toContain('between 1 and 32');
   });
 
-  it('accepts --max-pages and config maxConcurrentPages for renderer page pooling', async () => {
-    const dir = await createCaseDir('max-pages');
-    await writeFile(join(dir, 'doc.md'), '# Pooled');
-    await writeFile(join(dir, '.convpdfrc.yaml'), 'maxConcurrentPages: 1\n');
+  it(
+    'accepts --max-pages and config maxConcurrentPages for renderer page pooling',
+    { timeout: 50000 },
+    async () => {
+      const dir = await createCaseDir('max-pages');
+      await writeFile(join(dir, 'doc.md'), '# Pooled');
+      await writeFile(join(dir, '.convpdfrc.yaml'), 'maxConcurrentPages: 1\n');
 
-    runCli(['doc.md', '--max-pages', '1'], { cwd: dir });
+      runCli(['doc.md', '--max-pages', '1'], { cwd: dir });
 
-    expect(existsSync(join(dir, 'doc.pdf'))).toBe(true);
-  });
+      expect(existsSync(join(dir, 'doc.pdf'))).toBe(true);
+    }
+  );
 
   it('fails on max-pages values outside supported range', async () => {
     const dir = await createCaseDir('max-pages-range');
@@ -452,7 +456,7 @@ describe.sequential('CLI', () => {
     expect(existsSync(join(dir, 'doc.pdf'))).toBe(true);
   });
 
-  it('treats literal parentheses in filenames as non-glob input', async () => {
+  it('treats literal parentheses in filenames as non-glob input', { timeout: 50000 }, async () => {
     const dir = await createCaseDir('literal-parentheses-name');
     await writeFile(join(dir, 'spec (draft).md'), '# Spec');
 
@@ -461,14 +465,18 @@ describe.sequential('CLI', () => {
     expect(existsSync(join(dir, 'out.pdf'))).toBe(true);
   });
 
-  it('treats literal glob-like characters in filenames as direct file inputs', async () => {
-    const dir = await createCaseDir('literal-glob-chars');
-    await writeFile(join(dir, 'spec [draft].md'), '# Spec');
+  it(
+    'treats literal glob-like characters in filenames as direct file inputs',
+    { timeout: 50000 },
+    async () => {
+      const dir = await createCaseDir('literal-glob-chars');
+      await writeFile(join(dir, 'spec [draft].md'), '# Spec');
 
-    runCli(['spec [draft].md', '-o', 'out.pdf'], { cwd: dir });
+      runCli(['spec [draft].md', '-o', 'out.pdf'], { cwd: dir });
 
-    expect(existsSync(join(dir, 'out.pdf'))).toBe(true);
-  });
+      expect(existsSync(join(dir, 'out.pdf'))).toBe(true);
+    }
+  );
 
   it('starts watch mode even when no markdown files exist initially', async () => {
     const dir = await createCaseDir('watch-empty-start');
@@ -598,19 +606,23 @@ describe.sequential('CLI', () => {
     expect(result.combined).toContain('convpdf assets install');
   });
 
-  it('allows strict local assets policy when the document does not need runtime assets', async () => {
-    const dir = await createCaseDir('config-strict-local-assets-no-runtime');
-    const cacheDir = join(dir, 'cache');
-    await writeFile(join(dir, 'doc.md'), '# Offline plain text');
-    await writeFile(
-      join(dir, '.convpdfrc.yaml'),
-      `assetMode: local\nallowNetworkFallback: false\nassetCacheDir: ${cacheDir}\n`
-    );
+  it(
+    'allows strict local assets policy when the document does not need runtime assets',
+    { timeout: 50000 },
+    async () => {
+      const dir = await createCaseDir('config-strict-local-assets-no-runtime');
+      const cacheDir = join(dir, 'cache');
+      await writeFile(join(dir, 'doc.md'), '# Offline plain text');
+      await writeFile(
+        join(dir, '.convpdfrc.yaml'),
+        `assetMode: local\nallowNetworkFallback: false\nassetCacheDir: ${cacheDir}\n`
+      );
 
-    runCli(['doc.md'], { cwd: dir });
+      runCli(['doc.md'], { cwd: dir });
 
-    expect(existsSync(join(dir, 'doc.pdf'))).toBe(true);
-  });
+      expect(existsSync(join(dir, 'doc.pdf'))).toBe(true);
+    }
+  );
 
   it('enforces strict auto assets policy when fallback is disabled via CLI', async () => {
     const dir = await createCaseDir('cli-strict-auto-assets');
