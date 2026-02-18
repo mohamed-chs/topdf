@@ -1,6 +1,5 @@
 import { Marked } from 'marked';
-import type { Token } from 'marked';
-import type { Tokens } from 'marked';
+import type { Token, Tokens } from 'marked';
 import { markedHighlight } from 'marked-highlight';
 import footnote from 'marked-footnote';
 import hljs from 'highlight.js';

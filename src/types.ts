@@ -33,7 +33,6 @@ export interface RendererOptions {
   title?: string;
   executablePath?: string;
   maxConcurrentPages?: number;
-  preserveTimestamp?: boolean;
   linkTargetFormat?: OutputFormat;
   assetMode?: AssetMode;
   assetCacheDir?: string;

@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readdir, readFile, rm, rename, stat } from 'fs/promises
 import { homedir } from 'os';
 import { dirname, join, resolve } from 'path';
 import { pipeline } from 'stream/promises';
-import { URL, pathToFileURL } from 'url';
+import { URL } from 'url';
 import https from 'https';
 import * as tar from 'tar';
 import {
@@ -66,8 +66,6 @@ const withNoThrowCleanup = async (pathValue: string): Promise<void> => {
 const ensureDir = async (dirPath: string): Promise<void> => {
   await mkdir(dirPath, { recursive: true });
 };
-
-const toFileUrl = (pathValue: string): string => pathToFileURL(pathValue).href;
 
 const hasFile = async (pathValue: string): Promise<boolean> => {
   try {
@@ -344,23 +342,6 @@ export const cleanRuntimeAssets = async (cacheDir?: string): Promise<void> => {
   } finally {
     await releaseLock();
   }
-};
-
-export const listCacheEntries = async (cacheDir?: string): Promise<string[]> => {
-  const { cacheRoot } = resolveRuntimePaths(cacheDir);
-  try {
-    return await readdir(cacheRoot);
-  } catch {
-    return [];
-  }
-};
-
-export const toRuntimeAssetFileUrls = (cacheDir?: string): { mathjax: string; mermaid: string } => {
-  const { mathJaxPath, mermaidPath } = resolveRuntimePaths(cacheDir);
-  return {
-    mathjax: toFileUrl(mathJaxPath),
-    mermaid: toFileUrl(mermaidPath)
-  };
 };
 
 export const resolveAssetCacheDir = (cacheDir?: string): string =>

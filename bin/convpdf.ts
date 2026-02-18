@@ -75,6 +75,7 @@ interface ConfigFile extends RendererOptions {
   css?: string;
   output?: string;
   watch?: boolean;
+  preserveTimestamp?: boolean;
   concurrency?: number;
   maxConcurrentPages?: number;
   outputFormat?: OutputFormat;
@@ -394,14 +395,10 @@ const loadConfig = async (): Promise<LoadedConfig> => {
   return { values: {}, sourcePath: null };
 };
 
-const collectDefinedOptions = (options: CliOptions): Partial<CliOptions> => {
-  return Object.fromEntries(
-    Object.entries(options).filter(([, value]) => value !== undefined)
-  ) as Partial<CliOptions>;
-};
-
 const resolveRuntimeOptions = (config: ConfigFile, cliOptions: CliOptions): RuntimeCliOptions => {
-  const definedCliOptions = collectDefinedOptions(cliOptions);
+  const definedCliOptions = Object.fromEntries(
+    Object.entries(cliOptions).filter(([, value]) => value !== undefined)
+  ) as Partial<CliOptions>;
   const { assetFallback, ...remainingCliOptions } = definedCliOptions;
   const merged: RuntimeCliOptions = { ...config, ...remainingCliOptions };
 

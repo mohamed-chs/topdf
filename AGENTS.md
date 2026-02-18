@@ -51,6 +51,7 @@
 - **`src/assets/`**: Runtime asset management for offline rendering.
   - `manifest.ts` pins external runtime package versions and integrity metadata.
   - `manager.ts` handles user-cache install/verify/update/clean and archive extraction.
+  - Keep `manager.ts` exports minimal and operational (no unused helper exports); resolve file URLs at call sites unless reused by multiple runtime paths.
   - Runtime verification should validate NewCM font package structure (`chtml.js` plus non-empty `chtml/woff2`) rather than hard-coding one specific font filename.
   - `resolve.ts` maps asset policy (`auto|local|cdn`) to concrete script/font URLs (local cache, localhost-served, or CDN).
   - `allowNetworkFallback: false` is strict for both `auto` and `local`; missing local assets must fail fast with an actionable install command.

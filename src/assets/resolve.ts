@@ -1,11 +1,6 @@
 import { pathToFileURL } from 'url';
 import type { AssetMode } from '../types.js';
-import {
-  getRuntimeAssetPaths,
-  isRuntimeInstalled,
-  toRuntimeAssetFileUrls,
-  resolveAssetCacheDir
-} from './manager.js';
+import { getRuntimeAssetPaths, isRuntimeInstalled, resolveAssetCacheDir } from './manager.js';
 
 export const CDN_MATHJAX_SRC = 'https://cdn.jsdelivr.net/npm/mathjax@4/tex-chtml.js';
 export const CDN_MERMAID_SRC = 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js';
@@ -61,17 +56,18 @@ export const resolveRuntimeAssetSources = async (
 
   const installed = await isRuntimeInstalled(input.cacheDir);
   if (installed) {
+    const paths = getRuntimeAssetPaths(input.cacheDir);
     if (input.serverBaseUrl) {
       const urls = toServerRuntimeUrls(input.serverBaseUrl);
       return { ...urls, usingLocalAssets: true };
     }
 
-    const fileUrls = toRuntimeAssetFileUrls(input.cacheDir);
-    const paths = getRuntimeAssetPaths(input.cacheDir);
+    const mathJaxSrc = pathToFileURL(paths.mathJaxPath).href;
+    const mermaidSrc = pathToFileURL(paths.mermaidPath).href;
     return {
-      mathJaxSrc: fileUrls.mathjax,
-      mermaidSrc: fileUrls.mermaid,
-      mathJaxBaseUrl: fileUrls.mathjax.replace(/\/tex-chtml\.js$/, ''),
+      mathJaxSrc,
+      mermaidSrc,
+      mathJaxBaseUrl: mathJaxSrc.replace(/\/tex-chtml\.js$/, ''),
       mathJaxFontBaseUrl: trimTrailingSlash(pathToFileURL(paths.mathJaxFontDir).href),
       usingLocalAssets: true
     };
