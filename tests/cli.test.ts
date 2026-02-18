@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { existsSync } from 'fs';
-import { execFileSync } from 'child_process';
+import { execFileSync, spawnSync } from 'child_process';
 import { join, resolve } from 'path';
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
@@ -19,9 +19,8 @@ interface CliResult {
 }
 
 const runCli = (args: string[], options: CliRunOptions): CliResult => {
-  const stdout = execFileSync('node', [bin, ...args], {
+  const result = spawnSync('node', [bin, ...args], {
     cwd: options.cwd,
-    stdio: ['pipe', 'pipe', 'pipe'],
     encoding: 'utf-8',
     timeout: 120000,
     env: {
@@ -30,12 +29,25 @@ const runCli = (args: string[], options: CliRunOptions): CliResult => {
       FORCE_COLOR: '0',
       ...options.env
     }
-  }).trim();
+  });
+
+  if (result.error) {
+    throw result.error;
+  }
+
+  const stdout = (result.stdout ?? '').trim();
+  const stderr = (result.stderr ?? '').trim();
+  if (result.status !== 0) {
+    throw Object.assign(new Error(`CLI exited with code ${String(result.status)}`), {
+      stdout,
+      stderr
+    });
+  }
 
   return {
     stdout,
-    stderr: '',
-    combined: stdout
+    stderr,
+    combined: [stdout, stderr].filter(Boolean).join('\n')
   };
 };
 
@@ -167,12 +179,11 @@ describe.sequential('CLI', () => {
   it('applies config values when CLI flags are omitted', async () => {
     const dir = await createCaseDir('config-precedence');
     await writeFile(join(dir, 'doc.md'), '# C');
-    await writeFile(join(dir, '.convpdfrc.yaml'), 'margin: "1 2 3 4 5"\nconcurrency: 999\n');
+    await writeFile(join(dir, '.convpdfrc.yaml'), 'margin: "1 2 3 4 5"\nconcurrency: 2\n');
 
     const result = runCliExpectFailure(['doc.md'], { cwd: dir });
 
     expect(result.combined).toContain('Using config: .convpdfrc.yaml');
-    expect(result.combined).toContain('Requested concurrency 999 is out of range. Using 32');
     expect(result.combined).toContain('Invalid margin value');
   });
 
@@ -372,16 +383,15 @@ describe.sequential('CLI', () => {
     expect(badConcurrencyInteger.combined).toContain('Invalid integer');
   });
 
-  it('caps concurrency to avoid runaway resource usage', { timeout: 60000 }, async () => {
+  it('fails on concurrency above supported max', { timeout: 60000 }, async () => {
     const dir = await createCaseDir('concurrency-cap');
     await writeFile(join(dir, '1.md'), '# 1');
     await writeFile(join(dir, '2.md'), '# 2');
 
-    const result = runCli(['*.md', '-j', '999'], { cwd: dir });
+    const result = runCliExpectFailure(['*.md', '-j', '999'], { cwd: dir });
 
-    expect(result.combined).toContain('Requested concurrency 999 is out of range. Using 32');
-    expect(existsSync(join(dir, '1.pdf'))).toBe(true);
-    expect(existsSync(join(dir, '2.pdf'))).toBe(true);
+    expect(result.combined).toContain('Invalid concurrency value');
+    expect(result.combined).toContain('between 1 and 32');
   });
 
   it('accepts --max-pages and config maxConcurrentPages for renderer page pooling', async () => {
@@ -465,6 +475,15 @@ describe.sequential('CLI', () => {
     const parsed = JSON.parse(raw.stdout) as { operation: string; cleaned: boolean };
     expect(parsed.operation).toBe('clean');
     expect(parsed.cleaned).toBe(true);
+  });
+
+  it('supports --cache-dir=<path> syntax in assets commands', async () => {
+    const dir = await createCaseDir('assets-cache-dir-equals');
+    const cacheDir = resolve(dir, 'assets-cache');
+    const raw = runCli(['assets', 'clean', `--cache-dir=${cacheDir}`, '--json'], { cwd: dir });
+    const parsed = JSON.parse(raw.stdout) as { operation: string; cacheDir: string };
+    expect(parsed.operation).toBe('clean');
+    expect(parsed.cacheDir).toBe(cacheDir);
   });
 
   it('enforces strict local assets policy from config', async () => {

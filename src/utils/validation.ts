@@ -1,7 +1,7 @@
 import type { PDFMargin } from 'puppeteer';
 import { PAPER_FORMATS, type PaperFormat } from '../types.js';
 
-const VALID_MARGIN = /^\d*\.?\d+(px|in|cm|mm|pc|pt)?$/i;
+const VALID_MARGIN = /^(?:0(?:\.0+)?|\d*\.?\d+(px|in|cm|mm|pc|pt))$/i;
 const FORMAT_LOOKUP: ReadonlyMap<string, PaperFormat> = new Map(
   PAPER_FORMATS.map((value) => [value.toLowerCase(), value])
 );

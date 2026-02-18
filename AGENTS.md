@@ -31,7 +31,8 @@
   - Asset policy options (`assetMode`, `assetCacheDir`, `allowNetworkFallback`) must flow from config/CLI into renderer options without breaking CLI precedence rules.
   - `--asset-fallback/--no-asset-fallback` is only a CLI alias for `allowNetworkFallback`; keep this mapping explicit to avoid config/CLI divergence.
   - `--max-pages` / `maxConcurrentPages` must remain wired to renderer page leasing to keep Puppeteer memory usage predictable under high CLI concurrency.
-  - Numeric CLI/config options that control concurrency (`concurrency`, `maxPages`, `maxConcurrentPages`) must fail fast on invalid/non-positive values instead of degrading into `NaN`/implicit clamping behavior.
+  - Numeric CLI/config options that control concurrency (`concurrency`, `maxPages`, `maxConcurrentPages`) must fail fast on invalid/non-positive/out-of-range values instead of degrading into `NaN`/implicit clamping behavior.
+  - Asset subcommand option parsing must support both `--cache-dir <path>` and `--cache-dir=<path>` forms.
 - Rendering is automatic and syntax-driven for MathJax and Mermaid; keep it that way (no user-facing toggles).
 - **`src/renderer.ts`**: The **ORCHESTRATOR**. Coordinates markdown parsing, HTML assembly, browser rendering, and PDF generation.
   - HTML mode should continue to use `renderHtml(...)` directly without launching a browser, while PDF mode uses Puppeteer.
@@ -50,6 +51,7 @@
   - Runtime verification should validate NewCM font package structure (`chtml.js` plus non-empty `chtml/woff2`) rather than hard-coding one specific font filename.
   - `resolve.ts` maps asset policy (`auto|local|cdn`) to concrete script/font URLs (local cache, localhost-served, or CDN).
   - `allowNetworkFallback: false` is strict for both `auto` and `local`; missing local assets must fail fast with an actionable install command.
+  - Asset downloads must be timeout-bounded, and install/clean operations must be lock-serialized per cache root to avoid concurrent staging races.
 - **`src/markdown/`**: Markdown pipeline modules:
   - `frontmatter.ts` for frontmatter parsing/validation
   - `math.ts` for math protection/detection
@@ -61,6 +63,7 @@
 - **`src/utils/`**: Shared helpers:
   - `html.ts` for escaping/sanitization
   - `validation.ts` for margin/format/toc-depth validation
+  - Href sanitization for rendered HTML must reject `file:` links (relative links remain allowed); only explicit web-safe protocols should pass.
 - **`src/types.ts`**: The **TYPE DEFINITIONS**. Contains interfaces and types used throughout the project to ensure strict type safety.
 - **`src/styles/`**: Contains the **DESIGN DNA**. `default.css` provides the professional document layout, and `github.css` handles syntax highlighting themes.
 - **`tests/`**: The **QUALITY GATE**. Consolidated into `unit.test.ts` (logic/parsing) and `cli.test.ts` (integration/E2E).

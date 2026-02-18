@@ -176,6 +176,14 @@ const parseAssetsCommandArgs = (
       index += 1;
       continue;
     }
+    if (arg.startsWith('--cache-dir=')) {
+      const value = arg.slice('--cache-dir='.length).trim();
+      if (!value) {
+        throw new Error('Missing value for --cache-dir');
+      }
+      options.cacheDir = resolve(value);
+      continue;
+    }
 
     if (arg === '--force') {
       options.force = true;
@@ -307,6 +315,11 @@ const normalizeMaxConcurrentPages = (value: number): number => {
 const normalizeConcurrency = (value: unknown): number => {
   if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
     throw new Error(`Invalid concurrency value "${String(value)}". Expected an integer >= 1.`);
+  }
+  if (value > MAX_CONCURRENCY) {
+    throw new Error(
+      `Invalid concurrency value "${String(value)}". Expected an integer between 1 and ${MAX_CONCURRENCY}.`
+    );
   }
   return value;
 };
@@ -680,15 +693,7 @@ const runConvertCli = async (): Promise<void> => {
 
         const options = resolveRuntimeOptions(loadedConfig.values, cliOptions);
 
-        const requestedConcurrency = options.concurrency ?? DEFAULT_CONCURRENCY;
-        const concurrency = Math.max(1, Math.min(requestedConcurrency, MAX_CONCURRENCY));
-        if (requestedConcurrency !== concurrency) {
-          console.log(
-            chalk.yellow(
-              `Requested concurrency ${requestedConcurrency} is out of range. Using ${concurrency} (allowed: 1-${MAX_CONCURRENCY}).`
-            )
-          );
-        }
+        const concurrency = options.concurrency ?? DEFAULT_CONCURRENCY;
         const limit = pLimit(concurrency);
 
         const describedInputs = await describeInputs(inputs);

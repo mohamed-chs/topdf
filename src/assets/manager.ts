@@ -1,20 +1,10 @@
 import { createHash } from 'crypto';
 import { createWriteStream } from 'fs';
-import {
-  access,
-  mkdir,
-  mkdtemp,
-  readdir,
-  readFile,
-  rm,
-  rename,
-  stat,
-  writeFile
-} from 'fs/promises';
-import { homedir, tmpdir } from 'os';
+import { mkdir, mkdtemp, readdir, readFile, rm, rename, stat } from 'fs/promises';
+import { homedir } from 'os';
 import { dirname, join, resolve } from 'path';
 import { pipeline } from 'stream/promises';
-import { URL, fileURLToPath, pathToFileURL } from 'url';
+import { URL, pathToFileURL } from 'url';
 import https from 'https';
 import * as tar from 'tar';
 import {
@@ -39,8 +29,17 @@ export interface AssetInstallResult {
 }
 
 const MAX_REDIRECTS = 5;
+const DOWNLOAD_TIMEOUT_MS = 30000;
+const INSTALL_LOCK_NAME = '.runtime-install.lock';
+const INSTALL_LOCK_WAIT_MS = 120000;
+const INSTALL_LOCK_STALE_MS = 10 * 60 * 1000;
+const LOCK_POLL_INTERVAL_MS = 250;
 
 const normalizePath = (pathValue: string): string => resolve(pathValue);
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolveSleep) => {
+    setTimeout(resolveSleep, ms);
+  });
 
 const parseIntegrity = (
   integrity: string
@@ -124,33 +123,101 @@ const downloadToFile = async (
   await ensureDir(dirname(targetPath));
 
   await new Promise<void>((resolveDownload, rejectDownload) => {
+    let settled = false;
+    const resolveOnce = (): void => {
+      if (settled) return;
+      settled = true;
+      resolveDownload();
+    };
+    const rejectOnce = (error: Error): void => {
+      if (settled) return;
+      settled = true;
+      rejectDownload(error);
+    };
+
     const request = https.get(requestUrl, (response) => {
       const statusCode = response.statusCode ?? 0;
       if (statusCode >= 300 && statusCode < 400 && response.headers.location) {
         if (redirectCount >= MAX_REDIRECTS) {
-          rejectDownload(new Error(`Too many redirects while downloading ${urlValue}`));
+          rejectOnce(new Error(`Too many redirects while downloading ${urlValue}`));
           return;
         }
         const redirected = new URL(response.headers.location, requestUrl);
         response.resume();
         void downloadToFile(redirected.toString(), targetPath, redirectCount + 1)
-          .then(resolveDownload)
-          .catch(rejectDownload);
+          .then(resolveOnce)
+          .catch((error: unknown) => {
+            rejectOnce(error instanceof Error ? error : new Error(String(error)));
+          });
         return;
       }
 
       if (statusCode < 200 || statusCode >= 300) {
         response.resume();
-        rejectDownload(new Error(`Failed to download ${urlValue}: HTTP ${statusCode}`));
+        rejectOnce(new Error(`Failed to download ${urlValue}: HTTP ${statusCode}`));
         return;
       }
 
+      response.setTimeout(DOWNLOAD_TIMEOUT_MS, () => {
+        response.destroy(
+          new Error(`Timed out downloading ${urlValue} after ${DOWNLOAD_TIMEOUT_MS}ms`)
+        );
+      });
       const output = createWriteStream(targetPath);
-      void pipeline(response, output).then(resolveDownload).catch(rejectDownload);
+      void pipeline(response, output)
+        .then(resolveOnce)
+        .catch((error: unknown) => {
+          rejectOnce(error instanceof Error ? error : new Error(String(error)));
+        });
     });
 
-    request.on('error', rejectDownload);
+    request.setTimeout(DOWNLOAD_TIMEOUT_MS, () => {
+      request.destroy(
+        new Error(`Timed out downloading ${urlValue} after ${DOWNLOAD_TIMEOUT_MS}ms`)
+      );
+    });
+    request.on('error', (error: Error) => {
+      rejectOnce(error);
+    });
   });
+};
+
+const acquireInstallLock = async (cacheRoot: string): Promise<() => Promise<void>> => {
+  const lockPath = join(cacheRoot, INSTALL_LOCK_NAME);
+  const startedAt = Date.now();
+
+  while (true) {
+    try {
+      await mkdir(lockPath);
+      return async () => {
+        await withNoThrowCleanup(lockPath);
+      };
+    } catch (error: unknown) {
+      const code = (error as NodeJS.ErrnoException)?.code;
+      if (code !== 'EEXIST') {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`Failed to acquire asset install lock: ${message}`);
+      }
+
+      try {
+        const lockStats = await stat(lockPath);
+        if (Date.now() - lockStats.mtimeMs > INSTALL_LOCK_STALE_MS) {
+          await withNoThrowCleanup(lockPath);
+          continue;
+        }
+      } catch {
+        // Lock disappeared while checking; retry immediately.
+        continue;
+      }
+
+      if (Date.now() - startedAt > INSTALL_LOCK_WAIT_MS) {
+        throw new Error(
+          `Timed out waiting for asset install lock in "${cacheRoot}" after ${INSTALL_LOCK_WAIT_MS}ms.`
+        );
+      }
+      await sleep(LOCK_POLL_INTERVAL_MS);
+    }
+  }
 };
 
 const assertIntegrity = async (archivePath: string, spec: AssetArchiveSpec): Promise<void> => {
@@ -229,44 +296,54 @@ export const installRuntimeAssets = async (
   force = false
 ): Promise<AssetInstallResult> => {
   const paths = resolveRuntimePaths(cacheDir);
-
-  if (!force && (await isRuntimeInstalled(paths.cacheRoot))) {
-    return { installed: false, runtimeDir: paths.runtimeDir };
-  }
-
   await ensureDir(paths.cacheRoot);
-  const tempRoot = await mkdtemp(join(paths.cacheRoot, '.convpdf-assets-'));
-  const tempRuntimeDir = join(tempRoot, `runtime-${ASSET_SCHEMA_VERSION}`);
-  const downloadsDir = join(tempRoot, 'downloads');
-
+  const releaseLock = await acquireInstallLock(paths.cacheRoot);
   try {
-    await ensureDir(tempRuntimeDir);
-    await ensureDir(downloadsDir);
-
-    for (const spec of ASSET_ARCHIVES) {
-      const archivePath = join(downloadsDir, `${spec.id}.tgz`);
-      await downloadToFile(spec.tarballUrl, archivePath);
-      await assertIntegrity(archivePath, spec);
-      await extractArchive(archivePath, spec, tempRuntimeDir);
+    if (!force && (await isRuntimeInstalled(paths.cacheRoot))) {
+      return { installed: false, runtimeDir: paths.runtimeDir };
     }
 
-    await assertRuntimeFiles(tempRuntimeDir);
+    const tempRoot = await mkdtemp(join(paths.cacheRoot, '.convpdf-assets-'));
+    const tempRuntimeDir = join(tempRoot, `runtime-${ASSET_SCHEMA_VERSION}`);
+    const downloadsDir = join(tempRoot, 'downloads');
 
-    const stagedTarget = `${paths.runtimeDir}.staging`;
-    await withNoThrowCleanup(stagedTarget);
-    await rename(tempRuntimeDir, stagedTarget);
-    await withNoThrowCleanup(paths.runtimeDir);
-    await rename(stagedTarget, paths.runtimeDir);
+    try {
+      await ensureDir(tempRuntimeDir);
+      await ensureDir(downloadsDir);
 
-    return { installed: true, runtimeDir: paths.runtimeDir };
+      for (const spec of ASSET_ARCHIVES) {
+        const archivePath = join(downloadsDir, `${spec.id}.tgz`);
+        await downloadToFile(spec.tarballUrl, archivePath);
+        await assertIntegrity(archivePath, spec);
+        await extractArchive(archivePath, spec, tempRuntimeDir);
+      }
+
+      await assertRuntimeFiles(tempRuntimeDir);
+
+      const stagedTarget = `${paths.runtimeDir}.staging-${process.pid}-${Date.now()}`;
+      await withNoThrowCleanup(stagedTarget);
+      await rename(tempRuntimeDir, stagedTarget);
+      await withNoThrowCleanup(paths.runtimeDir);
+      await rename(stagedTarget, paths.runtimeDir);
+
+      return { installed: true, runtimeDir: paths.runtimeDir };
+    } finally {
+      await withNoThrowCleanup(tempRoot);
+    }
   } finally {
-    await withNoThrowCleanup(tempRoot);
+    await releaseLock();
   }
 };
 
 export const cleanRuntimeAssets = async (cacheDir?: string): Promise<void> => {
-  const { runtimeDir } = resolveRuntimePaths(cacheDir);
-  await withNoThrowCleanup(runtimeDir);
+  const { runtimeDir, cacheRoot } = resolveRuntimePaths(cacheDir);
+  await ensureDir(cacheRoot);
+  const releaseLock = await acquireInstallLock(cacheRoot);
+  try {
+    await withNoThrowCleanup(runtimeDir);
+  } finally {
+    await releaseLock();
+  }
 };
 
 export const listCacheEntries = async (cacheDir?: string): Promise<string[]> => {
@@ -288,24 +365,3 @@ export const toRuntimeAssetFileUrls = (cacheDir?: string): { mathjax: string; me
 
 export const resolveAssetCacheDir = (cacheDir?: string): string =>
   resolveRuntimePaths(cacheDir).cacheRoot;
-
-export const fileUrlToPath = (urlValue: string): string => fileURLToPath(urlValue);
-
-export const makeTempDir = async (): Promise<string> => mkdtemp(join(tmpdir(), 'convpdf-'));
-
-export const exists = async (pathValue: string): Promise<boolean> => {
-  try {
-    await access(pathValue);
-    return true;
-  } catch {
-    return false;
-  }
-};
-
-export const writeRuntimeMetadata = async (
-  cacheDir: string,
-  metadata: Record<string, unknown>
-): Promise<void> => {
-  const target = join(resolveRuntimePaths(cacheDir).runtimeDir, 'convpdf-assets.json');
-  await writeFile(target, `${JSON.stringify(metadata, null, 2)}\n`, 'utf-8');
-};

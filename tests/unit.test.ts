@@ -225,7 +225,7 @@ describe('Renderer', () => {
     );
     expect(html).toContain('href="mailto:test@example.com"');
     expect(html).toContain('href="tel:+123"');
-    expect(html).toContain('href="file:///tmp/a.md"');
+    expect(html).not.toContain('href="file:///tmp/a.md"');
     expect(html).toContain('href="#"');
     expect(html).not.toContain('href="data:text/html,1"');
   });
@@ -279,7 +279,7 @@ describe('Renderer', () => {
     }
   });
 
-  it('does not inject a default footer when only a header template is provided', async () => {
+  it('uses an empty footer placeholder when only a header template is provided', async () => {
     const rendererWithFakeBrowser = new Renderer();
     const pdfCalls: Array<Record<string, unknown>> = [];
 
@@ -500,7 +500,8 @@ describe('Validation', () => {
       bottom: '3in',
       left: '2in'
     });
-    expect(parseMargin('1 2 3 4')).toEqual({ top: '1', right: '2', bottom: '3', left: '4' });
+    expect(parseMargin('0')).toEqual({ top: '0', right: '0', bottom: '0', left: '0' });
+    expect(parseMargin('0 10mm')).toEqual({ top: '0', right: '10mm', bottom: '0', left: '10mm' });
   });
 
   it('uses defaults and rejects invalid margin values', () => {
@@ -510,9 +511,10 @@ describe('Validation', () => {
       bottom: '15mm',
       left: '10mm'
     });
-    expect(parseMargin(10)).toEqual({ top: '10', right: '10', bottom: '10', left: '10' });
+    expect(() => parseMargin(10)).toThrow('Invalid margin token');
     expect(() => parseMargin('1 2 3 4 5')).toThrow('Invalid margin value');
     expect(() => parseMargin('10qu')).toThrow('Invalid margin token');
+    expect(() => parseMargin('1 2 3 4')).toThrow('Invalid margin token');
   });
 
   it('validates TOC depth bounds and integer constraints', () => {
