@@ -17,7 +17,7 @@ import {
   verifyRuntimeAssets
 } from '../src/assets/manager.js';
 import type { AssetMode, OutputFormat, RendererOptions } from '../src/types.js';
-import { normalizeTocDepth } from '../src/utils/validation.js';
+import { normalizeMaxConcurrentPages, normalizeTocDepth } from '../src/utils/validation.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_CONCURRENCY = 5;
@@ -202,6 +202,16 @@ const parseAssetsCommandArgs = (
 };
 
 const runAssetsCommand = async (args: string[]): Promise<void> => {
+  if (!args.length || args[0] === '--help' || args[0] === '-h') {
+    console.log('Usage: convpdf assets <install|verify|update|clean> [options]');
+    console.log('');
+    console.log('Options:');
+    console.log('  --cache-dir <path>  Runtime asset cache directory override');
+    console.log('  --force             Force reinstall for install/update');
+    console.log('  --json              Emit machine-readable JSON output');
+    return;
+  }
+
   const { operation, options } = parseAssetsCommandArgs(args);
   const cacheDir = options.cacheDir;
 
@@ -262,7 +272,7 @@ const runAssetsCommand = async (args: string[]): Promise<void> => {
   );
 };
 
-const hasGlobMagic = (value: string): boolean => /[*?[\]{}()]/.test(value);
+const hasGlobMagic = (value: string): boolean => /[*?[\]{}]/.test(value);
 
 const getGlobParent = (pattern: string): string => {
   let current = pattern;
@@ -303,13 +313,6 @@ const parseInteger = (raw: string): number => {
     throw new Error(`Invalid integer "${raw}"`);
   }
   return Number.parseInt(normalized, 10);
-};
-
-const normalizeMaxConcurrentPages = (value: number): number => {
-  if (!Number.isInteger(value) || value < 1) {
-    throw new Error(`Invalid max pages value "${String(value)}". Expected an integer >= 1.`);
-  }
-  return Math.min(value, 128);
 };
 
 const normalizeConcurrency = (value: unknown): number => {
@@ -703,8 +706,11 @@ const runConvertCli = async (): Promise<void> => {
           options.outputFormat ?? 'pdf'
         );
         const files = await resolveMarkdownFiles(describedInputs);
-        if (!files.length) {
+        if (!files.length && !options.watch) {
           throw new Error('No input markdown files found.');
+        }
+        if (!files.length && options.watch) {
+          console.log(chalk.yellow('No input markdown files found yet. Watching for new files...'));
         }
 
         const outputOwners = buildOutputOwners(files, outputStrategy, describedInputs);
@@ -838,7 +844,10 @@ const runConvertCli = async (): Promise<void> => {
 
         console.log(chalk.yellow('\nWatching for changes... (Press Ctrl+C to stop)'));
         const queue = new ConversionQueue(limit);
-        watcher = chokidar.watch(inputs, {
+        const watchTargets = describedInputs.map((input) =>
+          input.hasGlobMagic ? getGlobParent(input.raw) : input.absolute
+        );
+        watcher = chokidar.watch(watchTargets, {
           ignored: /(^|[\/\\])\../,
           persistent: true,
           ignoreInitial: true
@@ -882,6 +891,9 @@ const runConvertCli = async (): Promise<void> => {
           );
           queue.enqueue(absoluteChangedPath, convert);
         });
+
+        // Keep the command alive in watch mode even when chokidar has no active fs handles yet.
+        await new Promise<void>(() => {});
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : String(error);
         console.error(chalk.red('Error:'), message);

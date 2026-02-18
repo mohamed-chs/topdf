@@ -14,7 +14,12 @@ import { hasMermaidSyntax } from './markdown/mermaid.js';
 import { createMarkedInstance } from './markdown/marked.js';
 import { generateToc } from './markdown/toc.js';
 import { renderTemplate } from './html/template.js';
-import { normalizePaperFormat, normalizeTocDepth, parseMargin } from './utils/validation.js';
+import {
+  normalizeMaxConcurrentPages,
+  normalizePaperFormat,
+  normalizeTocDepth,
+  parseMargin
+} from './utils/validation.js';
 import { resolveRuntimeAssetSources } from './assets/resolve.js';
 import { getRuntimeAssetPaths } from './assets/manager.js';
 
@@ -87,8 +92,8 @@ const mergeOptions = (base: RendererOptions, overrides: RendererOptions): Runtim
   const merged = { ...DEFAULT_RENDERER_OPTIONS, ...base, ...overrides };
   const maxConcurrentPagesRaw = merged.maxConcurrentPages;
   const maxConcurrentPages =
-    typeof maxConcurrentPagesRaw === 'number' && Number.isInteger(maxConcurrentPagesRaw)
-      ? Math.max(1, maxConcurrentPagesRaw)
+    typeof maxConcurrentPagesRaw === 'number'
+      ? normalizeMaxConcurrentPages(maxConcurrentPagesRaw)
       : DEFAULT_RENDERER_OPTIONS.maxConcurrentPages;
   return {
     ...merged,

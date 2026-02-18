@@ -404,6 +404,16 @@ describe.sequential('CLI', () => {
     expect(existsSync(join(dir, 'doc.pdf'))).toBe(true);
   });
 
+  it('fails on max-pages values outside supported range', async () => {
+    const dir = await createCaseDir('max-pages-range');
+    await writeFile(join(dir, 'doc.md'), '# Pooled');
+
+    const result = runCliExpectFailure(['doc.md', '--max-pages', '999'], { cwd: dir });
+
+    expect(result.combined).toContain('Invalid max pages value');
+    expect(result.combined).toContain('between 1 and 128');
+  });
+
   it('rejects removed math/mermaid CLI toggles', async () => {
     const dir = await createCaseDir('removed-cli-flags');
     await writeFile(join(dir, 'doc.md'), '# A');
@@ -447,6 +457,31 @@ describe.sequential('CLI', () => {
     expect(existsSync(join(dir, 'doc.pdf'))).toBe(true);
   });
 
+  it('treats literal parentheses in filenames as non-glob input', async () => {
+    const dir = await createCaseDir('literal-parentheses-name');
+    await writeFile(join(dir, 'spec (draft).md'), '# Spec');
+
+    runCli(['spec (draft).md', '-o', 'out.pdf'], { cwd: dir });
+
+    expect(existsSync(join(dir, 'out.pdf'))).toBe(true);
+  });
+
+  it('starts watch mode even when no markdown files exist initially', async () => {
+    const dir = await createCaseDir('watch-empty-start');
+    await mkdir(join(dir, 'docs'), { recursive: true });
+
+    const result = spawnSync('node', [bin, 'docs/*.md', '--watch'], {
+      cwd: dir,
+      encoding: 'utf-8',
+      timeout: 3000,
+      env: { ...process.env, NO_COLOR: '1', FORCE_COLOR: '0' }
+    });
+
+    const combined = `${result.stdout ?? ''}\n${result.stderr ?? ''}`;
+    expect(combined).toContain('No input markdown files found yet. Watching for new files');
+    expect(combined).toContain('Watching for changes... (Press Ctrl+C to stop)');
+  });
+
   it(
     'preserves file timestamps when --preserve-timestamp is used',
     { timeout: 40000 },
@@ -475,6 +510,13 @@ describe.sequential('CLI', () => {
     const parsed = JSON.parse(raw.stdout) as { operation: string; cleaned: boolean };
     expect(parsed.operation).toBe('clean');
     expect(parsed.cleaned).toBe(true);
+  });
+
+  it('shows assets command help', async () => {
+    const dir = await createCaseDir('assets-help');
+    const raw = runCli(['assets', '--help'], { cwd: dir });
+    expect(raw.stdout).toContain('Usage: convpdf assets');
+    expect(raw.stdout).toContain('install|verify|update|clean');
   });
 
   it('supports --cache-dir=<path> syntax in assets commands', async () => {

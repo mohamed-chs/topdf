@@ -33,6 +33,9 @@
   - `--max-pages` / `maxConcurrentPages` must remain wired to renderer page leasing to keep Puppeteer memory usage predictable under high CLI concurrency.
   - Numeric CLI/config options that control concurrency (`concurrency`, `maxPages`, `maxConcurrentPages`) must fail fast on invalid/non-positive/out-of-range values instead of degrading into `NaN`/implicit clamping behavior.
   - Asset subcommand option parsing must support both `--cache-dir <path>` and `--cache-dir=<path>` forms.
+  - Input paths containing literal parentheses (for example `spec (draft).md`) must be treated as regular file paths, not glob-magic patterns.
+  - Watch mode should start even when the initial input expansion is empty, then process future `add/change` events as files appear.
+  - `convpdf assets --help` must print deterministic operation/option usage text and exit successfully.
 - Rendering is automatic and syntax-driven for MathJax and Mermaid; keep it that way (no user-facing toggles).
 - **`src/renderer.ts`**: The **ORCHESTRATOR**. Coordinates markdown parsing, HTML assembly, browser rendering, and PDF generation.
   - HTML mode should continue to use `renderHtml(...)` directly without launching a browser, while PDF mode uses Puppeteer.
@@ -56,14 +59,14 @@
   - `frontmatter.ts` for frontmatter parsing/validation
   - `math.ts` for math protection/detection
   - `mermaid.ts` for mermaid-fence detection
-  - `marked.ts` for Marked setup/extensions/safe links, and callout/alert parsing (`> [!note]`, `> [!NOTE]`)
+  - `marked.ts` for Marked setup/extensions/safe links, callout/alert parsing (`> [!note]`, `> [!NOTE]`), and strict line-only `[TOC]` placeholder tokenization.
   - `toc.ts` for TOC generation
 - **`src/html/template.ts`**: HTML document assembly with safe token replacement and optional MathJax/Mermaid script injection.
   - Math rendering is on MathJax v4 and Mermaid v11 with runtime URL injection; keep delimiter config and MathJax loader/font path wiring aligned with upstream docs.
 - **`src/utils/`**: Shared helpers:
   - `html.ts` for escaping/sanitization
   - `validation.ts` for margin/format/toc-depth validation
-  - Href sanitization for rendered HTML must reject `file:` links (relative links remain allowed); only explicit web-safe protocols should pass.
+  - Href sanitization for rendered HTML must reject `file:` links and protocol-relative URLs (`//...`) (relative links remain allowed); only explicit web-safe protocols should pass.
 - **`src/types.ts`**: The **TYPE DEFINITIONS**. Contains interfaces and types used throughout the project to ensure strict type safety.
 - **`src/styles/`**: Contains the **DESIGN DNA**. `default.css` provides the professional document layout, and `github.css` handles syntax highlighting themes.
 - **`tests/`**: The **QUALITY GATE**. Consolidated into `unit.test.ts` (logic/parsing) and `cli.test.ts` (integration/E2E).

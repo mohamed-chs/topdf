@@ -188,6 +188,14 @@ describe('Renderer', () => {
     expect(autoTocHtml).toContain('href="#root"');
   });
 
+  it('treats [TOC] as a placeholder only when it appears alone on its own line', async () => {
+    const html = await renderer.renderHtml('[TOC]ary\n\n```\n[TOC]\n```\n\n# H', { toc: true });
+    const tocMatches = html.match(/class="toc"/g) ?? [];
+    expect(tocMatches).toHaveLength(1);
+    expect(html).toContain('<p>[TOC]ary</p>');
+    expect(html).toContain('<pre><code>[TOC]');
+  });
+
   it('preserves math in heading ids and TOC labels', async () => {
     const html = await renderer.renderHtml('# $x$ heading\n\n## Child $y$', { toc: true });
     expect(html).toContain('<h1 id="x-heading">');
@@ -221,13 +229,14 @@ describe('Renderer', () => {
 
   it('allows safe protocols and blocks unsafe protocol links', async () => {
     const html = await renderer.renderHtml(
-      '[Mail](mailto:test@example.com) [Phone](tel:+123) [File](file:///tmp/a.md) [Data](data:text/html,1)'
+      '[Mail](mailto:test@example.com) [Phone](tel:+123) [File](file:///tmp/a.md) [Data](data:text/html,1) [ProtoRel](//example.com)'
     );
     expect(html).toContain('href="mailto:test@example.com"');
     expect(html).toContain('href="tel:+123"');
     expect(html).not.toContain('href="file:///tmp/a.md"');
     expect(html).toContain('href="#"');
     expect(html).not.toContain('href="data:text/html,1"');
+    expect(html).not.toContain('href="//example.com"');
   });
 
   it('preserves display and inline math content', async () => {

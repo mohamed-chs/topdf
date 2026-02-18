@@ -5,6 +5,7 @@ const VALID_MARGIN = /^(?:0(?:\.0+)?|\d*\.?\d+(px|in|cm|mm|pc|pt))$/i;
 const FORMAT_LOOKUP: ReadonlyMap<string, PaperFormat> = new Map(
   PAPER_FORMATS.map((value) => [value.toLowerCase(), value])
 );
+export const MAX_CONCURRENT_PAGES = 128;
 
 export const parseMargin = (rawMargin?: string | number): PDFMargin => {
   const marginValue =
@@ -68,4 +69,18 @@ export const normalizeTocDepth = (input?: number): number => {
     throw new Error(`Invalid TOC depth "${input}". Expected a value between 1 and 6.`);
   }
   return input;
+};
+
+export const normalizeMaxConcurrentPages = (value: number): number => {
+  if (!Number.isInteger(value)) {
+    throw new Error(
+      `Invalid max pages value "${String(value)}". Expected an integer between 1 and ${MAX_CONCURRENT_PAGES}.`
+    );
+  }
+  if (value < 1 || value > MAX_CONCURRENT_PAGES) {
+    throw new Error(
+      `Invalid max pages value "${String(value)}". Expected an integer between 1 and ${MAX_CONCURRENT_PAGES}.`
+    );
+  }
+  return value;
 };

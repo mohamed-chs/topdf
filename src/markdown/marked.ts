@@ -210,10 +210,10 @@ export const createMarkedInstance = (
           name: 'tocPlaceholder',
           level: 'block',
           start(source: string) {
-            return source.match(/^\[TOC\]/im)?.index;
+            return source.match(/^ {0,3}\[TOC\][ \t]*(?:\r?\n|$)/im)?.index;
           },
           tokenizer(source: string) {
-            const match = /^\[TOC\]/i.exec(source);
+            const match = /^ {0,3}\[TOC\][ \t]*(?:\r?\n|$)/i.exec(source);
             if (!match) return undefined;
             return { type: 'tocPlaceholder', raw: match[0] };
           },
