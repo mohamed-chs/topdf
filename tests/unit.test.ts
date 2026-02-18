@@ -87,6 +87,21 @@ describe('Renderer', () => {
     expect(mermaidOnly).toContain('<div class="mermaid">graph TD;\nA --&gt; B;</div>');
   });
 
+  it('serializes MathJax inline config without HTML-entity corruption', async () => {
+    const html = await new Renderer({
+      assetMode: 'cdn',
+      mathJaxSrc: 'https://cdn.test/mathjax/tex-chtml.js?x=1&y=2',
+      mermaidSrc: 'https://cdn.test/mermaid/mermaid.min.js?x=1&y=2',
+      mathJaxBaseUrl: 'https://cdn.test/mathjax?x=1&y=2',
+      mathJaxFontBaseUrl: 'https://cdn.test/font?x=1&y=2'
+    }).renderHtml('$x+y$');
+
+    expect(html).toContain('"mathjax": "https://cdn.test/mathjax?x=1&y=2"');
+    expect(html).toContain('"mathjax-newcm": "https://cdn.test/font?x=1&y=2"');
+    expect(html).toContain('"fontURL": "https://cdn.test/font?x=1&y=2/chtml/woff2"');
+    expect(html).toContain('src="https://cdn.test/mathjax/tex-chtml.js?x=1&amp;y=2"');
+  });
+
   it('always enables math/mermaid rendering when syntax is present', async () => {
     const withMath = await renderer.renderHtml('$x$');
     expect(withMath).toContain('MathJax-script');
@@ -220,7 +235,7 @@ describe('Renderer', () => {
       'I have <span class="convpdf-math-ignore" aria-hidden="true">&#36;</span>100 and <span class="convpdf-math-ignore" aria-hidden="true">&#36;</span>50.'
     );
     expect(html).toContain('But $x = 5$ is math.');
-    expect(html).toContain("ignoreHtmlClass: 'convpdf-math-ignore'");
+    expect(html).toContain('"ignoreHtmlClass": "convpdf-math-ignore"');
   });
 
   it('does not treat code blocks as math', async () => {
@@ -283,6 +298,48 @@ describe('Renderer', () => {
     expect(pdfCalls[0]?.displayHeaderFooter).toBe(true);
     expect(pdfCalls[0]?.headerTemplate).toBe('<div>H</div>');
     expect(pdfCalls[0]?.footerTemplate).toBe('<span></span>');
+  });
+
+  it('bounds concurrent page creation when maxConcurrentPages is set', async () => {
+    const rendererWithFakeBrowser = new Renderer({ maxConcurrentPages: 1, assetMode: 'cdn' });
+    let inUsePages = 0;
+    let maxInUsePages = 0;
+
+    const makeFakePage = () => ({
+      emulateMediaType: vi.fn(async () => {}),
+      goto: vi.fn(async () => {}),
+      evaluate: vi.fn(async () => {}),
+      pdf: vi.fn(async () => {
+        await new Promise<void>((resolveDelay) => {
+          setTimeout(resolveDelay, 30);
+        });
+      }),
+      close: vi.fn(async () => {
+        inUsePages = Math.max(0, inUsePages - 1);
+      })
+    });
+
+    // @ts-expect-error injecting a fake browser for unit isolation
+    rendererWithFakeBrowser.browser = {
+      newPage: vi.fn(async () => {
+        inUsePages += 1;
+        maxInUsePages = Math.max(maxInUsePages, inUsePages);
+        return makeFakePage();
+      })
+    } as unknown;
+
+    await Promise.all([
+      rendererWithFakeBrowser.generatePdf(
+        '# First',
+        resolve(tmpdir(), `convpdf-first-${Date.now()}.pdf`)
+      ),
+      rendererWithFakeBrowser.generatePdf(
+        '# Second',
+        resolve(tmpdir(), `convpdf-second-${Date.now()}.pdf`)
+      )
+    ]);
+
+    expect(maxInUsePages).toBe(1);
   });
 
   it('detects mermaid syntax independently', () => {

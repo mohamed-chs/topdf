@@ -30,6 +30,7 @@
   - Asset lifecycle commands (`convpdf assets install|verify|update|clean`) must remain deterministic and machine-readable when `--json` is requested.
   - Asset policy options (`assetMode`, `assetCacheDir`, `allowNetworkFallback`) must flow from config/CLI into renderer options without breaking CLI precedence rules.
   - `--asset-fallback/--no-asset-fallback` is only a CLI alias for `allowNetworkFallback`; keep this mapping explicit to avoid config/CLI divergence.
+  - `--max-pages` / `maxConcurrentPages` must remain wired to renderer page leasing to keep Puppeteer memory usage predictable under high CLI concurrency.
 - Rendering is automatic and syntax-driven for MathJax and Mermaid; keep it that way (no user-facing toggles).
 - **`src/renderer.ts`**: The **ORCHESTRATOR**. Coordinates markdown parsing, HTML assembly, browser rendering, and PDF generation.
   - HTML mode should continue to use `renderHtml(...)` directly without launching a browser, while PDF mode uses Puppeteer.
@@ -40,6 +41,7 @@
   - Dynamic content waits (images, MathJax, Mermaid) are centralized and timeout-bounded; preserve these explicit waits when adjusting rendering behavior.
   - Page and localhost render-server lifecycle must be deterministic even if setup fails before navigation (no leaked pages on partial initialization failures).
   - Mermaid execution should happen only after `document.fonts.ready` to minimize label clipping and layout drift in final PDFs.
+  - PDF rendering uses an explicit page lease pool (`maxConcurrentPages`) to bound simultaneous open pages; preserve deterministic page release on every success/failure path.
 - **`src/assets/`**: Runtime asset management for offline rendering.
   - `manifest.ts` pins external runtime package versions and integrity metadata.
   - `manager.ts` handles user-cache install/verify/update/clean and archive extraction.

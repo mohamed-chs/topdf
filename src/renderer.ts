@@ -28,12 +28,14 @@ const DEFAULT_RENDERER_OPTIONS: Readonly<{
   linkTargetFormat: NonNullable<RendererOptions['linkTargetFormat']>;
   assetMode: NonNullable<RendererOptions['assetMode']>;
   allowNetworkFallback: NonNullable<RendererOptions['allowNetworkFallback']>;
+  maxConcurrentPages: NonNullable<RendererOptions['maxConcurrentPages']>;
 }> = {
   margin: '15mm 10mm',
   format: 'A4',
   linkTargetFormat: 'pdf',
   assetMode: 'auto',
-  allowNetworkFallback: true
+  allowNetworkFallback: true,
+  maxConcurrentPages: 8
 };
 
 const RENDER_TIMEOUT_MS = 60000;
@@ -43,6 +45,7 @@ interface RuntimeRenderOptions extends RendererOptions {
   format: NonNullable<RendererOptions['format']>;
   assetMode: NonNullable<RendererOptions['assetMode']>;
   allowNetworkFallback: NonNullable<RendererOptions['allowNetworkFallback']>;
+  maxConcurrentPages: NonNullable<RendererOptions['maxConcurrentPages']>;
 }
 
 interface RenderHttpServer {
@@ -69,13 +72,19 @@ const MIME_TYPES: Readonly<Record<string, string>> = {
 
 const mergeOptions = (base: RendererOptions, overrides: RendererOptions): RuntimeRenderOptions => {
   const merged = { ...DEFAULT_RENDERER_OPTIONS, ...base, ...overrides };
+  const maxConcurrentPagesRaw = merged.maxConcurrentPages;
+  const maxConcurrentPages =
+    typeof maxConcurrentPagesRaw === 'number' && Number.isInteger(maxConcurrentPagesRaw)
+      ? Math.max(1, maxConcurrentPagesRaw)
+      : DEFAULT_RENDERER_OPTIONS.maxConcurrentPages;
   return {
     ...merged,
     margin: merged.margin ?? DEFAULT_RENDERER_OPTIONS.margin,
     format: merged.format ?? DEFAULT_RENDERER_OPTIONS.format,
     assetMode: merged.assetMode ?? DEFAULT_RENDERER_OPTIONS.assetMode,
     allowNetworkFallback:
-      merged.allowNetworkFallback ?? DEFAULT_RENDERER_OPTIONS.allowNetworkFallback
+      merged.allowNetworkFallback ?? DEFAULT_RENDERER_OPTIONS.allowNetworkFallback,
+    maxConcurrentPages
   };
 };
 
@@ -396,6 +405,8 @@ export class Renderer {
   private options: RendererOptions;
   private browser: Browser | null = null;
   private initializing: Promise<void> | null = null;
+  private activePages = 0;
+  private readonly pageWaiters: Array<() => void> = [];
 
   constructor(options: RendererOptions = {}) {
     this.options = { ...DEFAULT_RENDERER_OPTIONS, ...options };
@@ -431,6 +442,39 @@ export class Renderer {
     if (!this.browser) return;
     await this.browser.close();
     this.browser = null;
+    this.activePages = 0;
+    const waiters = this.pageWaiters.splice(0, this.pageWaiters.length);
+    for (const wake of waiters) wake();
+  }
+
+  private async acquirePage(maxConcurrentPages: number): Promise<Page> {
+    while (this.activePages >= maxConcurrentPages) {
+      await new Promise<void>((resolveWaiter) => {
+        this.pageWaiters.push(resolveWaiter);
+      });
+      if (!this.browser) {
+        throw new Error('Browser not initialized');
+      }
+    }
+    if (!this.browser) {
+      throw new Error('Browser not initialized');
+    }
+
+    this.activePages += 1;
+    try {
+      return await this.browser.newPage();
+    } catch (error) {
+      this.activePages = Math.max(0, this.activePages - 1);
+      const wakeNext = this.pageWaiters.shift();
+      if (wakeNext) wakeNext();
+      throw error;
+    }
+  }
+
+  private releasePage(): void {
+    this.activePages = Math.max(0, this.activePages - 1);
+    const wakeNext = this.pageWaiters.shift();
+    if (wakeNext) wakeNext();
   }
 
   async renderHtml(markdown: string, overrides: RendererOptions = {}): Promise<string> {
@@ -548,7 +592,7 @@ export class Renderer {
     let renderServer: RenderHttpServer | null = null;
 
     try {
-      page = await this.browser.newPage();
+      page = await this.acquirePage(opts.maxConcurrentPages);
       renderServer = await createRenderServer({
         sourceBasePath: opts.basePath,
         assetCacheDir: opts.assetCacheDir
@@ -604,6 +648,7 @@ export class Renderer {
     } finally {
       if (page) {
         await page.close().catch(() => {});
+        this.releasePage();
       }
       if (renderServer) {
         await renderServer.close().catch(() => {});

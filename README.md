@@ -50,6 +50,7 @@ convpdf assets install
 - `--toc`: Generate Table of Contents.
 - `--toc-depth <depth>`: TOC depth from `1` to `6`.
 - `--executable-path <path>`: Custom browser executable path.
+- `--max-pages <number>`: Maximum number of concurrent browser pages used for PDF rendering (default: `8`).
 - `--preserve-timestamp`: Preserve modification time from markdown file.
 - `--asset-mode <mode>`: Runtime asset mode (`auto`, `local`, `cdn`; default: `auto`).
 - `--asset-cache-dir <path>`: Runtime asset cache directory override.
@@ -110,6 +111,7 @@ footer: ./templates/footer.html
 assetMode: auto
 assetCacheDir: ~/.cache/convpdf
 allowNetworkFallback: true
+maxConcurrentPages: 8
 ```
 
 Paths in config files are resolved relative to the config file location.

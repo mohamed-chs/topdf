@@ -59,6 +59,7 @@ interface CliOptions {
   toc?: boolean;
   tocDepth?: number;
   executablePath?: string;
+  maxPages?: number;
   preserveTimestamp?: boolean;
   concurrency?: number;
   outputFormat?: OutputFormat;
@@ -75,6 +76,7 @@ interface ConfigFile extends RendererOptions {
   output?: string;
   watch?: boolean;
   concurrency?: number;
+  maxConcurrentPages?: number;
   outputFormat?: OutputFormat;
 }
 
@@ -100,6 +102,7 @@ interface InputDescriptor {
 
 interface RuntimeCliOptions extends ConfigFile {
   html?: boolean;
+  maxPages?: number;
 }
 
 interface AssetsCommandOptions {
@@ -294,6 +297,13 @@ const parseInteger = (raw: string): number => {
   return Number.parseInt(normalized, 10);
 };
 
+const normalizeMaxConcurrentPages = (value: number): number => {
+  if (!Number.isInteger(value) || value < 1) {
+    throw new Error(`Invalid max pages value "${String(value)}". Expected an integer >= 1.`);
+  }
+  return Math.min(value, 128);
+};
+
 const normalizeOutputFormat = (format: unknown): OutputFormat => {
   if (typeof format !== 'string') {
     throw new Error(`Invalid output format "${String(format)}". Expected "pdf" or "html".`);
@@ -383,6 +393,12 @@ const resolveRuntimeOptions = (config: ConfigFile, cliOptions: CliOptions): Runt
   }
   if (merged.assetMode !== undefined) {
     merged.assetMode = normalizeAssetMode(merged.assetMode);
+  }
+  if (merged.maxConcurrentPages !== undefined) {
+    merged.maxConcurrentPages = normalizeMaxConcurrentPages(merged.maxConcurrentPages);
+  }
+  if (merged.maxPages !== undefined) {
+    merged.maxConcurrentPages = normalizeMaxConcurrentPages(merged.maxPages);
   }
   return merged;
 };
@@ -557,6 +573,7 @@ const createRendererOptions = async (options: RuntimeCliOptions): Promise<Render
     headerTemplate: isPdfOutput ? await readTemplate(options.header) : null,
     footerTemplate: isPdfOutput ? await readTemplate(options.footer) : null,
     executablePath: options.executablePath,
+    maxConcurrentPages: options.maxConcurrentPages,
     linkTargetFormat: options.outputFormat,
     assetMode: options.assetMode,
     assetCacheDir: options.assetCacheDir,
@@ -583,6 +600,7 @@ const runConvertCli = async (): Promise<void> => {
     .option('--toc', 'Generate Table of Contents')
     .option('--toc-depth <depth>', 'Table of Contents depth', parseInteger)
     .option('--executable-path <path>', 'Puppeteer browser executable path')
+    .option('--max-pages <number>', 'Maximum number of concurrent browser pages', parseInteger)
     .option('--preserve-timestamp', 'Preserve modification time from markdown file')
     .option('--output-format <format>', 'Output format: pdf or html', normalizeOutputFormat)
     .option('--html', 'Shortcut for --output-format html')
@@ -616,6 +634,10 @@ const runConvertCli = async (): Promise<void> => {
       };
 
       let shuttingDown = false;
+      const removeSignalHandlers = (): void => {
+        process.off('SIGINT', handleSignal);
+        process.off('SIGTERM', handleSignal);
+      };
       const shutdown = async (code: number, reason?: string): Promise<void> => {
         if (shuttingDown) return;
         shuttingDown = true;
@@ -623,6 +645,7 @@ const runConvertCli = async (): Promise<void> => {
           console.log(chalk.yellow(reason));
         }
         await cleanup();
+        removeSignalHandlers();
         process.exit(code);
       };
 
@@ -794,8 +817,7 @@ const runConvertCli = async (): Promise<void> => {
           }
 
           await cleanup();
-          process.off('SIGINT', handleSignal);
-          process.off('SIGTERM', handleSignal);
+          removeSignalHandlers();
           return;
         }
 
@@ -849,13 +871,12 @@ const runConvertCli = async (): Promise<void> => {
         const message = error instanceof Error ? error.message : String(error);
         console.error(chalk.red('Error:'), message);
         await cleanup();
-        process.off('SIGINT', handleSignal);
-        process.off('SIGTERM', handleSignal);
+        removeSignalHandlers();
         process.exit(1);
       }
     });
 
-  program.parse();
+  await program.parseAsync();
 };
 
 if (process.argv[2] === 'assets') {

@@ -32,6 +32,7 @@ export interface RendererOptions {
   baseHref?: string;
   title?: string;
   executablePath?: string;
+  maxConcurrentPages?: number;
   preserveTimestamp?: boolean;
   linkTargetFormat?: OutputFormat;
   assetMode?: AssetMode;

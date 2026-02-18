@@ -384,6 +384,16 @@ describe.sequential('CLI', () => {
     expect(existsSync(join(dir, '2.pdf'))).toBe(true);
   });
 
+  it('accepts --max-pages and config maxConcurrentPages for renderer page pooling', async () => {
+    const dir = await createCaseDir('max-pages');
+    await writeFile(join(dir, 'doc.md'), '# Pooled');
+    await writeFile(join(dir, '.convpdfrc.yaml'), 'maxConcurrentPages: 1\n');
+
+    runCli(['doc.md', '--max-pages', '1'], { cwd: dir });
+
+    expect(existsSync(join(dir, 'doc.pdf'))).toBe(true);
+  });
+
   it('rejects removed math/mermaid CLI toggles', async () => {
     const dir = await createCaseDir('removed-cli-flags');
     await writeFile(join(dir, 'doc.md'), '# A');

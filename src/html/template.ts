@@ -34,35 +34,47 @@ const DEFAULT_TEMPLATE = `<!DOCTYPE html>
   </body>
 </html>`;
 
+const serializeInlineScriptObject = (value: Record<string, unknown>): string =>
+  JSON.stringify(value, null, 2)
+    .replace(/</g, '\\u003c')
+    .replace(/<\/script/gi, '<\\/script');
+
 const buildMathJaxSnippet = (input: HtmlTemplateInput): string => {
   const mathJaxSrc = input.mathJaxSrc ?? 'https://cdn.jsdelivr.net/npm/mathjax@4/tex-chtml.js';
-  const loaderPaths = input.mathJaxBaseUrl
-    ? `
-    loader: {
-      paths: {
-        mathjax: '${escapeHtml(input.mathJaxBaseUrl)}'${input.mathJaxFontBaseUrl ? `,\n        "mathjax-newcm": '${escapeHtml(input.mathJaxFontBaseUrl)}'` : ''}
-      }
-    },`
-    : '';
-  const chtmlFontUrl = input.mathJaxFontBaseUrl
-    ? `,
-    chtml: {
-      fontURL: '${escapeHtml(input.mathJaxFontBaseUrl)}/chtml/woff2'
-    }`
-    : '';
-
-  return `
-<script>
-  window.MathJax = {${loaderPaths}
+  const config: Record<string, unknown> = {
     options: {
       ignoreHtmlClass: 'convpdf-math-ignore'
     },
     tex: {
-      inlineMath: [['$', '$'], ['\\\\(', '\\\\)']],
-      displayMath: [['$$', '$$'], ['\\\\[', '\\\\]']]
+      inlineMath: [
+        ['$', '$'],
+        ['\\(', '\\)']
+      ],
+      displayMath: [
+        ['$$', '$$'],
+        ['\\[', '\\]']
+      ]
     },
-    svg: { fontCache: 'global' }${chtmlFontUrl}
+    svg: { fontCache: 'global' }
   };
+
+  if (input.mathJaxBaseUrl) {
+    config.loader = {
+      paths: {
+        mathjax: input.mathJaxBaseUrl,
+        ...(input.mathJaxFontBaseUrl ? { 'mathjax-newcm': input.mathJaxFontBaseUrl } : {})
+      }
+    };
+  }
+  if (input.mathJaxFontBaseUrl) {
+    config.chtml = {
+      fontURL: `${input.mathJaxFontBaseUrl}/chtml/woff2`
+    };
+  }
+
+  return `
+<script>
+  window.MathJax = ${serializeInlineScriptObject(config)};
 </script>
 <script id="MathJax-script" defer src="${escapeHtml(mathJaxSrc)}"></script>`;
 };
