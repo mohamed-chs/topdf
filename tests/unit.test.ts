@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdtemp, rm, writeFile } from 'fs/promises';
+import { mkdtemp, mkdir, rm, writeFile } from 'fs/promises';
 import { resolve, dirname } from 'path';
 import { tmpdir } from 'os';
 import { fileURLToPath } from 'url';
@@ -8,6 +8,12 @@ import { Renderer } from '../src/renderer.js';
 import { parseFrontmatter } from '../src/markdown/frontmatter.js';
 import { hasMathSyntax } from '../src/markdown/math.js';
 import { hasMermaidSyntax } from '../src/markdown/mermaid.js';
+import {
+  CDN_MATHJAX_SRC,
+  CDN_MERMAID_SRC,
+  resolveRuntimeAssetSources
+} from '../src/assets/resolve.js';
+import { verifyRuntimeAssets } from '../src/assets/manager.js';
 import { normalizePaperFormat, normalizeTocDepth, parseMargin } from '../src/utils/validation.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -68,13 +74,14 @@ describe('Renderer', () => {
   });
 
   it('injects MathJax and Mermaid scripts only when needed', async () => {
-    const mathOnly = await renderer.renderHtml('$x+y$');
+    const cdnRenderer = new Renderer({ assetMode: 'cdn' });
+    const mathOnly = await cdnRenderer.renderHtml('$x+y$');
     expect(mathOnly).toContain('MathJax-script');
     expect(mathOnly).toContain('mathjax@4/tex-chtml.js');
     expect(mathOnly).not.toContain('mathjax@3/es5/tex-chtml.js');
     expect(mathOnly).not.toContain('Mermaid-script');
 
-    const mermaidOnly = await renderer.renderHtml('```mermaid\ngraph TD;\nA --> B;\n```');
+    const mermaidOnly = await cdnRenderer.renderHtml('```mermaid\ngraph TD;\nA --> B;\n```');
     expect(mermaidOnly).toContain('Mermaid-script');
     expect(mermaidOnly).not.toContain('language-mermaid');
     expect(mermaidOnly).toContain('<div class="mermaid">graph TD;\nA --&gt; B;</div>');
@@ -283,6 +290,67 @@ describe('Renderer', () => {
   it('detects mermaid syntax independently', () => {
     expect(hasMermaidSyntax('```mermaid\ngraph LR;\nA-->B;\n```')).toBe(true);
     expect(hasMermaidSyntax('```js\nconsole.log("plain");\n```')).toBe(false);
+  });
+});
+
+describe('Asset resolution', () => {
+  it('uses CDN URLs when mode is cdn', async () => {
+    const resolved = await resolveRuntimeAssetSources({ mode: 'cdn' });
+    expect(resolved.mathJaxSrc).toBe(CDN_MATHJAX_SRC);
+    expect(resolved.mermaidSrc).toBe(CDN_MERMAID_SRC);
+    expect(resolved.usingLocalAssets).toBe(false);
+  });
+
+  it('throws for strict local mode when assets are missing', async () => {
+    const dir = await mkdtemp(resolve(tmpdir(), 'convpdf-assets-missing-'));
+    try {
+      await expect(
+        resolveRuntimeAssetSources({
+          mode: 'local',
+          cacheDir: dir,
+          allowNetworkFallback: false
+        })
+      ).rejects.toThrow('Local runtime assets are required but missing');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('falls back to CDN in local mode when fallback is enabled', async () => {
+    const dir = await mkdtemp(resolve(tmpdir(), 'convpdf-assets-fallback-'));
+    try {
+      const resolved = await resolveRuntimeAssetSources({
+        mode: 'local',
+        cacheDir: dir,
+        allowNetworkFallback: true
+      });
+      expect(resolved.mathJaxSrc).toBe(CDN_MATHJAX_SRC);
+      expect(resolved.mermaidSrc).toBe(CDN_MERMAID_SRC);
+      expect(resolved.warning).toContain('Falling back to CDN');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('validates runtime font package layout with at least one woff2 font', async () => {
+    const dir = await mkdtemp(resolve(tmpdir(), 'convpdf-assets-verify-'));
+    const runtimeDir = resolve(dir, 'runtime-v1');
+
+    try {
+      await mkdir(resolve(runtimeDir, 'mathjax/output'), { recursive: true });
+      await mkdir(resolve(runtimeDir, 'mathjax-newcm-font/chtml/woff2'), { recursive: true });
+      await mkdir(resolve(runtimeDir, 'mermaid'), { recursive: true });
+
+      await writeFile(resolve(runtimeDir, 'mathjax/tex-chtml.js'), '// ok');
+      await writeFile(resolve(runtimeDir, 'mathjax/output/chtml.js'), '// ok');
+      await writeFile(resolve(runtimeDir, 'mathjax-newcm-font/chtml.js'), '// ok');
+      await writeFile(resolve(runtimeDir, 'mathjax-newcm-font/chtml/woff2/mjx-ncm-n.woff2'), 'ok');
+      await writeFile(resolve(runtimeDir, 'mermaid/mermaid.min.js'), '// ok');
+
+      await expect(verifyRuntimeAssets(dir)).resolves.toBeDefined();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });
 

@@ -27,12 +27,22 @@
   - CLI option precedence is explicit: only user-provided flags override config values. Keep this guard so future Commander default behavior changes cannot silently clobber `.convpdfrc*` values.
   - Output strategy must stay extension-aware for both PDF and HTML modes. Single-file validation and collision checks must use the selected output format (`pdf` or `html`) consistently.
   - Watch mode must maintain output ownership state across `add/change/unlink` events to keep collision detection accurate over time.
+  - Asset lifecycle commands (`convpdf assets install|verify|update|clean`) must remain deterministic and machine-readable when `--json` is requested.
+  - Asset policy options (`assetMode`, `assetCacheDir`, fallback toggles) must flow from config/CLI into renderer options without breaking CLI precedence rules.
 - Rendering should remain automatic and syntax-driven for MathJax and Mermaid unless a future task explicitly introduces a justified user-facing control.
 - **`src/renderer.ts`**: The **ORCHESTRATOR**. Coordinates markdown parsing, HTML assembly, browser rendering, and PDF generation.
   - HTML mode should continue to use `renderHtml(...)` directly without launching a browser, while PDF mode uses Puppeteer.
-  - PDF rendering currently navigates to a temp HTML file (`page.goto(file://...)`) with `<base href=...>` for reliable local asset resolution; preserve deterministic temp-file cleanup.
+  - PDF rendering now serves an in-memory HTML document via an ephemeral localhost server (`http://127.0.0.1:<port>/document.html`) instead of `file://`; preserve deterministic server/page cleanup in success and failure paths.
+  - Local runtime assets are served from the same localhost origin during PDF rendering to avoid cross-origin issues with MathJax/Mermaid/font loading.
   - After PDF generation, file-link annotations are rewritten from absolute `file:///...` URIs to relative paths (based on the markdown source directory) to keep outputs portable across environments.
+  - Preserve rewrite support for localhost-served source links (`/__convpdf_source/...`) so PDF links stay portable.
   - Dynamic content waits (images, MathJax, Mermaid) are centralized and timeout-bounded; preserve these explicit waits when adjusting rendering behavior.
+  - Mermaid execution should happen only after `document.fonts.ready` to minimize label clipping and layout drift in final PDFs.
+- **`src/assets/`**: Runtime asset management for offline rendering.
+  - `manifest.ts` pins external runtime package versions and integrity metadata.
+  - `manager.ts` handles user-cache install/verify/update/clean and archive extraction.
+  - Runtime verification should validate NewCM font package structure (`chtml.js` plus non-empty `chtml/woff2`) rather than hard-coding one specific font filename.
+  - `resolve.ts` maps asset policy (`auto|local|cdn`) to concrete script/font URLs (local cache, localhost-served, or CDN).
 - **`src/markdown/`**: Markdown pipeline modules:
   - `frontmatter.ts` for frontmatter parsing/validation
   - `math.ts` for math protection/detection
@@ -40,7 +50,7 @@
   - `marked.ts` for Marked setup/extensions/safe links, and callout/alert parsing (`> [!note]`, `> [!NOTE]`)
   - `toc.ts` for TOC generation
 - **`src/html/template.ts`**: HTML document assembly with safe token replacement and optional MathJax/Mermaid script injection.
-  - Math rendering is on MathJax v4 (`https://cdn.jsdelivr.net/npm/mathjax@4/tex-chtml.js`); keep delimiter config and script URL aligned with upstream v4 docs.
+  - Math rendering is on MathJax v4 and Mermaid v11 with runtime URL injection; keep delimiter config and MathJax loader/font path wiring aligned with upstream docs.
 - **`src/utils/`**: Shared helpers:
   - `html.ts` for escaping/sanitization
   - `validation.ts` for margin/format/toc-depth validation
@@ -59,6 +69,7 @@
   - Keep regression coverage for header/footer PDF options so supplying only one template does not inject unexpected default content in the other region.
   - Keep regression coverage for output format behavior: `.md/.markdown` link rewrite targets (`.pdf` vs `.html`) and HTML-mode CLI output path validation/collision semantics.
   - Keep regression coverage that generated HTML uses non-absolute `<base href>` values and that generated PDFs rewrite `file:///...` link annotations to relative paths.
+  - Keep regression coverage for asset policy behavior (`auto/local/cdn`) and asset lifecycle command UX (`assets install|verify|update|clean`).
 - **`examples/`**: Canonical real-world scenarios and fidelity probes used for **BOTH DOCUMENTATION AND REGRESSION TESTING**.
   - The exhaustive suite lives directly under `examples/`. Keep scenarios focused and non-overlapping:
     - `core-features.md`: baseline markdown features, emoji, wrapping stress, page breaks, and cross-file navigation.

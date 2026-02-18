@@ -12,6 +12,10 @@ export interface HtmlTemplateInput {
   baseHref?: string;
   includeMathJax: boolean;
   includeMermaid: boolean;
+  mathJaxSrc?: string;
+  mermaidSrc?: string;
+  mathJaxBaseUrl?: string;
+  mathJaxFontBaseUrl?: string;
 }
 
 const DEFAULT_TEMPLATE = `<!DOCTYPE html>
@@ -30,9 +34,26 @@ const DEFAULT_TEMPLATE = `<!DOCTYPE html>
   </body>
 </html>`;
 
-const MATHJAX_SNIPPET = `
+const buildMathJaxSnippet = (input: HtmlTemplateInput): string => {
+  const mathJaxSrc = input.mathJaxSrc ?? 'https://cdn.jsdelivr.net/npm/mathjax@4/tex-chtml.js';
+  const loaderPaths = input.mathJaxBaseUrl
+    ? `
+    loader: {
+      paths: {
+        mathjax: '${escapeHtml(input.mathJaxBaseUrl)}'${input.mathJaxFontBaseUrl ? `,\n        "mathjax-newcm": '${escapeHtml(input.mathJaxFontBaseUrl)}'` : ''}
+      }
+    },`
+    : '';
+  const chtmlFontUrl = input.mathJaxFontBaseUrl
+    ? `,
+    chtml: {
+      fontURL: '${escapeHtml(input.mathJaxFontBaseUrl)}/chtml/woff2'
+    }`
+    : '';
+
+  return `
 <script>
-  window.MathJax = {
+  window.MathJax = {${loaderPaths}
     options: {
       ignoreHtmlClass: 'convpdf-math-ignore'
     },
@@ -40,18 +61,23 @@ const MATHJAX_SNIPPET = `
       inlineMath: [['$', '$'], ['\\\\(', '\\\\)']],
       displayMath: [['$$', '$$'], ['\\\\[', '\\\\]']]
     },
-    svg: { fontCache: 'global' }
+    svg: { fontCache: 'global' }${chtmlFontUrl}
   };
 </script>
-<script id="MathJax-script" defer src="https://cdn.jsdelivr.net/npm/mathjax@4/tex-chtml.js"></script>`;
+<script id="MathJax-script" defer src="${escapeHtml(mathJaxSrc)}"></script>`;
+};
 
-const MERMAID_SNIPPET = `
-<script id="Mermaid-script" src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+const buildMermaidSnippet = (input: HtmlTemplateInput): string => {
+  const mermaidSrc =
+    input.mermaidSrc ?? 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js';
+  return `
+<script id="Mermaid-script" src="${escapeHtml(mermaidSrc)}"></script>
 <script>
   if (window.mermaid && typeof window.mermaid.initialize === 'function') {
     window.mermaid.initialize({ startOnLoad: false, securityLevel: 'strict' });
   }
 </script>`;
+};
 
 const loadTemplate = async (templatePath?: string | null): Promise<string> => {
   if (!templatePath) return DEFAULT_TEMPLATE;
@@ -73,8 +99,8 @@ export const renderTemplate = async (input: HtmlTemplateInput): Promise<string> 
     : input.basePath
       ? `<base href="${escapeHtml(pathToFileURL(resolve(input.basePath)).href)}/">`
       : '';
-  const mathJax = input.includeMathJax ? MATHJAX_SNIPPET : '';
-  const mermaid = input.includeMermaid ? MERMAID_SNIPPET : '';
+  const mathJax = input.includeMathJax ? buildMathJaxSnippet(input) : '';
+  const mermaid = input.includeMermaid ? buildMermaidSnippet(input) : '';
 
   let html = template;
   html = replaceToken(html, 'title', escapeHtml(input.title));

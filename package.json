@@ -63,7 +63,8 @@
     "marked-highlight": "^2.2.3",
     "p-limit": "^7.3.0",
     "pdf-lib": "^1.17.1",
-    "puppeteer": "^24.37.2"
+    "puppeteer": "^24.37.2",
+    "tar": "^7.5.9"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.2",

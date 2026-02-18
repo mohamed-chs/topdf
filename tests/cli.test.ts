@@ -448,4 +448,12 @@ describe.sequential('CLI', () => {
       );
     }
   );
+
+  it('supports assets clean command with json output', async () => {
+    const dir = await createCaseDir('assets-clean');
+    const raw = runCli(['assets', 'clean', '--json'], { cwd: dir });
+    const parsed = JSON.parse(raw.stdout) as { operation: string; cleaned: boolean };
+    expect(parsed.operation).toBe('clean');
+    expect(parsed.cleaned).toBe(true);
+  });
 });

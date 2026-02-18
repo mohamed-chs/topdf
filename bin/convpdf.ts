@@ -1,16 +1,22 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
-import { readFile, stat, mkdir, utimes, writeFile } from 'fs/promises';
-import { resolve, basename, extname, join, dirname, relative } from 'path';
+import { mkdir, readFile, stat, utimes, writeFile } from 'fs/promises';
+import { basename, dirname, extname, join, relative, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import chalk from 'chalk';
-import { glob } from 'glob';
 import chokidar, { type FSWatcher } from 'chokidar';
+import cliProgress from 'cli-progress';
+import { glob } from 'glob';
 import yaml from 'js-yaml';
 import pLimit from 'p-limit';
-import cliProgress from 'cli-progress';
 import { Renderer } from '../src/renderer.js';
-import type { OutputFormat, RendererOptions } from '../src/types.js';
+import {
+  cleanRuntimeAssets,
+  installRuntimeAssets,
+  resolveAssetCacheDir,
+  verifyRuntimeAssets
+} from '../src/assets/manager.js';
+import type { AssetMode, OutputFormat, RendererOptions } from '../src/types.js';
 import { normalizeTocDepth } from '../src/utils/validation.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -57,6 +63,9 @@ interface CliOptions {
   concurrency?: number;
   outputFormat?: OutputFormat;
   html?: boolean;
+  assetMode?: AssetMode;
+  assetCacheDir?: string;
+  assetFallback?: boolean;
 }
 
 interface ConfigFile extends Omit<RendererOptions, 'math' | 'mermaid'> {
@@ -91,6 +100,13 @@ interface InputDescriptor {
 
 interface RuntimeCliOptions extends ConfigFile {
   html?: boolean;
+  assetFallback?: boolean;
+}
+
+interface AssetsCommandOptions {
+  cacheDir?: string;
+  force?: boolean;
+  json?: boolean;
 }
 
 class ConversionQueue {
@@ -124,6 +140,117 @@ class ConversionQueue {
     });
   }
 }
+
+const normalizeAssetMode = (mode: unknown): AssetMode => {
+  if (typeof mode !== 'string') {
+    throw new Error(`Invalid asset mode "${String(mode)}". Expected auto, local, or cdn.`);
+  }
+  const normalized = mode.trim().toLowerCase();
+  if (normalized === 'auto' || normalized === 'local' || normalized === 'cdn') {
+    return normalized;
+  }
+  throw new Error(`Invalid asset mode "${mode}". Expected auto, local, or cdn.`);
+};
+
+const parseAssetsCommandArgs = (
+  args: string[]
+): { operation: string; options: AssetsCommandOptions } => {
+  const [operation, ...rest] = args;
+  if (!operation) {
+    throw new Error('Missing assets operation. Use: install, verify, update, or clean.');
+  }
+
+  const options: AssetsCommandOptions = {};
+  for (let index = 0; index < rest.length; index++) {
+    const arg = rest[index];
+    if (!arg) continue;
+
+    if (arg === '--cache-dir') {
+      const value = rest[index + 1];
+      if (!value) {
+        throw new Error('Missing value for --cache-dir');
+      }
+      options.cacheDir = resolve(value);
+      index += 1;
+      continue;
+    }
+
+    if (arg === '--force') {
+      options.force = true;
+      continue;
+    }
+
+    if (arg === '--json') {
+      options.json = true;
+      continue;
+    }
+
+    throw new Error(`Unknown assets option: ${arg}`);
+  }
+
+  return { operation: operation.toLowerCase(), options };
+};
+
+const runAssetsCommand = async (args: string[]): Promise<void> => {
+  const { operation, options } = parseAssetsCommandArgs(args);
+  const cacheDir = options.cacheDir;
+
+  if (operation === 'install') {
+    const result = await installRuntimeAssets(cacheDir, options.force ?? false);
+    if (options.json) {
+      console.log(
+        JSON.stringify({ operation, ...result, cacheDir: resolveAssetCacheDir(cacheDir) })
+      );
+      return;
+    }
+    console.log(
+      chalk.green(
+        result.installed
+          ? `Assets installed at ${result.runtimeDir}`
+          : `Assets already installed at ${result.runtimeDir}`
+      )
+    );
+    return;
+  }
+
+  if (operation === 'verify') {
+    const paths = await verifyRuntimeAssets(cacheDir);
+    if (options.json) {
+      console.log(JSON.stringify({ operation, ok: true, runtimeDir: paths.runtimeDir }));
+      return;
+    }
+    console.log(chalk.green(`Assets verified at ${paths.runtimeDir}`));
+    return;
+  }
+
+  if (operation === 'update') {
+    const result = await installRuntimeAssets(cacheDir, true);
+    if (options.json) {
+      console.log(
+        JSON.stringify({ operation, ...result, cacheDir: resolveAssetCacheDir(cacheDir) })
+      );
+      return;
+    }
+    console.log(chalk.green(`Assets refreshed at ${result.runtimeDir}`));
+    return;
+  }
+
+  if (operation === 'clean') {
+    await cleanRuntimeAssets(cacheDir);
+    if (options.json) {
+      console.log(
+        JSON.stringify({ operation, cleaned: true, cacheDir: resolveAssetCacheDir(cacheDir) })
+      );
+      return;
+    }
+    console.log(chalk.green(`Assets removed from ${resolveAssetCacheDir(cacheDir)}`));
+    return;
+  }
+
+  throw new Error(
+    `Unknown assets operation "${operation}". Use: install, verify, update, or clean.`
+  );
+};
 
 const hasGlobMagic = (value: string): boolean => /[*?[\]{}()]/.test(value);
 
@@ -187,6 +314,8 @@ const normalizeConfigPaths = (config: ConfigFile, configPath: string): ConfigFil
   if (normalized.header) normalized.header = resolve(configDir, normalized.header);
   if (normalized.footer) normalized.footer = resolve(configDir, normalized.footer);
   if (normalized.output) normalized.output = resolve(configDir, normalized.output);
+  if (normalized.assetCacheDir)
+    normalized.assetCacheDir = resolve(configDir, normalized.assetCacheDir);
   return normalized;
 };
 
@@ -209,6 +338,10 @@ const loadConfig = async (): Promise<LoadedConfig> => {
         throw new Error(
           'The "math" and "mermaid" config keys are no longer supported. Rendering is now automatic when syntax is detected.'
         );
+      }
+
+      if (config.assetMode !== undefined) {
+        config.assetMode = normalizeAssetMode(config.assetMode);
       }
 
       return {
@@ -242,6 +375,9 @@ const resolveRuntimeOptions = (config: ConfigFile, cliOptions: CliOptions): Runt
   merged.outputFormat = merged.html ? 'html' : outputFormat;
   if (merged.tocDepth !== undefined) {
     merged.tocDepth = normalizeTocDepth(merged.tocDepth);
+  }
+  if (merged.assetMode !== undefined) {
+    merged.assetMode = normalizeAssetMode(merged.assetMode);
   }
   return merged;
 };
@@ -416,286 +552,315 @@ const createRendererOptions = async (options: RuntimeCliOptions): Promise<Render
     headerTemplate: isPdfOutput ? await readTemplate(options.header) : null,
     footerTemplate: isPdfOutput ? await readTemplate(options.footer) : null,
     executablePath: options.executablePath,
-    linkTargetFormat: options.outputFormat
+    linkTargetFormat: options.outputFormat,
+    assetMode: options.assetMode,
+    assetCacheDir: options.assetCacheDir,
+    allowNetworkFallback: options.assetFallback
   };
 };
 
-const program = new Command();
+const runConvertCli = async (): Promise<void> => {
+  const program = new Command();
 
-program
-  .name('convpdf')
-  .description('Convert Markdown to high-quality PDF or HTML.')
-  .version(pkg.version)
-  .argument('<inputs...>', 'Input markdown files or glob patterns')
-  .option('-o, --output <path>', 'Output directory or file path')
-  .option('-w, --watch', 'Watch for changes')
-  .option('-c, --css <path>', 'Custom CSS')
-  .option('-t, --template <path>', 'Custom HTML template')
-  .option('-m, --margin <margin>', 'Page margin (default: 15mm 10mm)')
-  .option('-f, --format <format>', 'PDF format (default: A4)')
-  .option('--header <path>', 'Custom header template')
-  .option('--footer <path>', 'Custom footer template')
-  .option('--toc', 'Generate Table of Contents')
-  .option('--toc-depth <depth>', 'Table of Contents depth', parseInteger)
-  .option('--executable-path <path>', 'Puppeteer browser executable path')
-  .option('--preserve-timestamp', 'Preserve modification time from markdown file')
-  .option('--output-format <format>', 'Output format: pdf or html', normalizeOutputFormat)
-  .option('--html', 'Shortcut for --output-format html')
-  .option(
-    '-j, --concurrency <number>',
-    `Number of concurrent conversions (default: ${DEFAULT_CONCURRENCY}, max: ${MAX_CONCURRENCY})`,
-    parseInteger
-  )
-  .action(async (inputs: string[], cliOptions: CliOptions) => {
-    let watcher: FSWatcher | null = null;
-    let renderer: Renderer | null = null;
-    let progressBar: cliProgress.SingleBar | null = null;
+  program
+    .name('convpdf')
+    .description('Convert Markdown to high-quality PDF or HTML.')
+    .version(pkg.version)
+    .argument('<inputs...>', 'Input markdown files or glob patterns')
+    .option('-o, --output <path>', 'Output directory or file path')
+    .option('-w, --watch', 'Watch for changes')
+    .option('-c, --css <path>', 'Custom CSS')
+    .option('-t, --template <path>', 'Custom HTML template')
+    .option('-m, --margin <margin>', 'Page margin (default: 15mm 10mm)')
+    .option('-f, --format <format>', 'PDF format (default: A4)')
+    .option('--header <path>', 'Custom header template')
+    .option('--footer <path>', 'Custom footer template')
+    .option('--toc', 'Generate Table of Contents')
+    .option('--toc-depth <depth>', 'Table of Contents depth', parseInteger)
+    .option('--executable-path <path>', 'Puppeteer browser executable path')
+    .option('--preserve-timestamp', 'Preserve modification time from markdown file')
+    .option('--output-format <format>', 'Output format: pdf or html', normalizeOutputFormat)
+    .option('--html', 'Shortcut for --output-format html')
+    .option('--asset-mode <mode>', 'Runtime asset mode: auto, local, or cdn', normalizeAssetMode)
+    .option('--asset-cache-dir <path>', 'Runtime asset cache directory')
+    .option('--asset-fallback', 'Allow network fallback when local runtime assets are missing')
+    .option('--no-asset-fallback', 'Disable network fallback when local runtime assets are missing')
+    .option(
+      '-j, --concurrency <number>',
+      `Number of concurrent conversions (default: ${DEFAULT_CONCURRENCY}, max: ${MAX_CONCURRENCY})`,
+      parseInteger
+    )
+    .action(async (inputs: string[], cliOptions: CliOptions) => {
+      let watcher: FSWatcher | null = null;
+      let renderer: Renderer | null = null;
+      let progressBar: cliProgress.SingleBar | null = null;
 
-    const cleanup = async (): Promise<void> => {
-      if (progressBar) {
-        progressBar.stop();
-        progressBar = null;
-      }
-      if (watcher) {
-        await watcher.close().catch(() => {});
-        watcher = null;
-      }
-      if (renderer) {
-        await renderer.close().catch(() => {});
-        renderer = null;
-      }
-    };
+      const cleanup = async (): Promise<void> => {
+        if (progressBar) {
+          progressBar.stop();
+          progressBar = null;
+        }
+        if (watcher) {
+          await watcher.close().catch(() => {});
+          watcher = null;
+        }
+        if (renderer) {
+          await renderer.close().catch(() => {});
+          renderer = null;
+        }
+      };
 
-    let shuttingDown = false;
-    const shutdown = async (code: number, reason?: string): Promise<void> => {
-      if (shuttingDown) return;
-      shuttingDown = true;
-      if (reason) {
-        console.log(chalk.yellow(reason));
-      }
-      await cleanup();
-      process.exit(code);
-    };
+      let shuttingDown = false;
+      const shutdown = async (code: number, reason?: string): Promise<void> => {
+        if (shuttingDown) return;
+        shuttingDown = true;
+        if (reason) {
+          console.log(chalk.yellow(reason));
+        }
+        await cleanup();
+        process.exit(code);
+      };
 
-    const handleSignal = (signal: NodeJS.Signals): void => {
-      void shutdown(0, `\nReceived ${signal}. Gracefully shutting down...`);
-    };
+      const handleSignal = (signal: NodeJS.Signals): void => {
+        void shutdown(0, `\nReceived ${signal}. Gracefully shutting down...`);
+      };
 
-    process.on('SIGINT', handleSignal);
-    process.on('SIGTERM', handleSignal);
+      process.on('SIGINT', handleSignal);
+      process.on('SIGTERM', handleSignal);
 
-    try {
-      const loadedConfig = await loadConfig();
-      if (loadedConfig.sourcePath) {
-        console.log(
-          chalk.gray(`Using config: ${relative(process.cwd(), loadedConfig.sourcePath)}`)
+      try {
+        const loadedConfig = await loadConfig();
+        if (loadedConfig.sourcePath) {
+          console.log(
+            chalk.gray(`Using config: ${relative(process.cwd(), loadedConfig.sourcePath)}`)
+          );
+        }
+
+        if (cliOptions.assetCacheDir) {
+          cliOptions.assetCacheDir = resolve(cliOptions.assetCacheDir);
+        }
+
+        const options = resolveRuntimeOptions(loadedConfig.values, cliOptions);
+
+        const requestedConcurrency = options.concurrency ?? DEFAULT_CONCURRENCY;
+        const concurrency = Math.max(1, Math.min(requestedConcurrency, MAX_CONCURRENCY));
+        if (requestedConcurrency !== concurrency) {
+          console.log(
+            chalk.yellow(
+              `Requested concurrency ${requestedConcurrency} is out of range. Using ${concurrency} (allowed: 1-${MAX_CONCURRENCY}).`
+            )
+          );
+        }
+        const limit = pLimit(concurrency);
+
+        const describedInputs = await describeInputs(inputs);
+        const outputStrategy = resolveOutputStrategy(
+          options.output,
+          describedInputs,
+          options.outputFormat ?? 'pdf'
         );
-      }
+        const files = await resolveMarkdownFiles(describedInputs);
+        if (!files.length) {
+          throw new Error('No input markdown files found.');
+        }
 
-      const options = resolveRuntimeOptions(loadedConfig.values, cliOptions);
+        const outputOwners = buildOutputOwners(files, outputStrategy, describedInputs);
+        const firstInput = describedInputs[0];
+        const singleInput =
+          describedInputs.length === 1 &&
+          firstInput &&
+          !firstInput.isDirectory &&
+          !firstInput.hasGlobMagic
+            ? firstInput.absolute
+            : null;
 
-      const requestedConcurrency = options.concurrency ?? DEFAULT_CONCURRENCY;
-      const concurrency = Math.max(1, Math.min(requestedConcurrency, MAX_CONCURRENCY));
-      if (requestedConcurrency !== concurrency) {
-        console.log(
-          chalk.yellow(
-            `Requested concurrency ${requestedConcurrency} is out of range. Using ${concurrency} (allowed: 1-${MAX_CONCURRENCY}).`
-          )
-        );
-      }
-      const limit = pLimit(concurrency);
+        renderer = new Renderer(await createRendererOptions(options));
+        const counts = { success: 0, fail: 0 };
 
-      const describedInputs = await describeInputs(inputs);
-      const outputStrategy = resolveOutputStrategy(
-        options.output,
-        describedInputs,
-        options.outputFormat ?? 'pdf'
-      );
-      const files = await resolveMarkdownFiles(describedInputs);
-      if (!files.length) {
-        throw new Error('No input markdown files found.');
-      }
+        if (!options.watch && files.length > 0 && process.stdout.isTTY) {
+          progressBar = new cliProgress.SingleBar({
+            format: `${chalk.blue('Converting')} {bar} {percentage}% | {value}/{total} | {file}`,
+            barCompleteChar: '\u2588',
+            barIncompleteChar: '\u2591',
+            hideCursor: true
+          });
+          progressBar.start(files.length, 0, { file: '' });
+        }
 
-      const outputOwners = buildOutputOwners(files, outputStrategy, describedInputs);
-      const firstInput = describedInputs[0];
-      const singleInput =
-        describedInputs.length === 1 &&
-        firstInput &&
-        !firstInput.isDirectory &&
-        !firstInput.hasGlobMagic
-          ? firstInput.absolute
-          : null;
+        const convert = async (filePath: string): Promise<void> => {
+          const inputPath = resolve(filePath);
+          const relInput = relative(process.cwd(), inputPath);
 
-      renderer = new Renderer(await createRendererOptions(options));
-      const counts = { success: 0, fail: 0 };
+          try {
+            const inputStats = await stat(inputPath);
+            if (!inputStats.isFile()) return;
 
-      if (!options.watch && files.length > 0 && process.stdout.isTTY) {
-        progressBar = new cliProgress.SingleBar({
-          format: `${chalk.blue('Converting')} {bar} {percentage}% | {value}/{total} | {file}`,
-          barCompleteChar: '\u2588',
-          barIncompleteChar: '\u2591',
-          hideCursor: true
-        });
-        progressBar.start(files.length, 0, { file: '' });
-      }
+            if (outputStrategy.mode === 'single-file' && singleInput && inputPath !== singleInput) {
+              if (!progressBar) {
+                console.log(
+                  chalk.yellow(
+                    `Skipping ${relInput}: output is configured as a single ${outputStrategy.outputFormat.toUpperCase()} file for ${relative(
+                      process.cwd(),
+                      singleInput
+                    )}.`
+                  )
+                );
+              }
+              return;
+            }
 
-      const convert = async (filePath: string): Promise<void> => {
-        const inputPath = resolve(filePath);
-        const relInput = relative(process.cwd(), inputPath);
+            const outputPath = resolveOutputPathForInput(
+              inputPath,
+              outputStrategy,
+              describedInputs
+            );
+            const relOutput = relative(process.cwd(), outputPath);
+            const outputKey = getOutputCollisionKey(outputPath);
+            const existingOwner = outputOwners.get(outputKey);
 
-        try {
-          const inputStats = await stat(inputPath);
-          if (!inputStats.isFile()) return;
-
-          if (outputStrategy.mode === 'single-file' && singleInput && inputPath !== singleInput) {
-            if (!progressBar) {
-              console.log(
-                chalk.yellow(
-                  `Skipping ${relInput}: output is configured as a single ${outputStrategy.outputFormat.toUpperCase()} file for ${relative(
-                    process.cwd(),
-                    singleInput
-                  )}.`
-                )
+            if (existingOwner && existingOwner !== inputPath) {
+              throw new Error(
+                `Output path collision: ${relative(process.cwd(), existingOwner)} and ${relInput} both resolve to ${relOutput}.`
               );
+            }
+
+            outputOwners.set(outputKey, inputPath);
+            await mkdir(dirname(outputPath), { recursive: true });
+
+            if (progressBar) {
+              progressBar.update(counts.success + counts.fail, { file: relInput });
+            } else {
+              console.log(
+                chalk.blue(`Converting ${chalk.bold(relInput)} -> ${chalk.bold(relOutput)}...`)
+              );
+            }
+
+            const markdown = await readFile(inputPath, 'utf-8');
+            if (!renderer) {
+              throw new Error('Renderer is not initialized.');
+            }
+            if (outputStrategy.outputFormat === 'html') {
+              const html = await renderer.renderHtml(markdown, {
+                baseHref: buildRelativeBaseHref(outputPath, dirname(inputPath)),
+                linkTargetFormat: 'html'
+              });
+              await writeFile(outputPath, html, 'utf-8');
+            } else {
+              await renderer.generatePdf(markdown, outputPath, {
+                basePath: dirname(inputPath),
+                linkTargetFormat: 'pdf'
+              });
+            }
+
+            if (options.preserveTimestamp) {
+              await utimes(outputPath, inputStats.atime, inputStats.mtime);
+            }
+
+            counts.success += 1;
+            if (progressBar) {
+              progressBar.update(counts.success + counts.fail, { file: basename(outputPath) });
+            } else {
+              console.log(chalk.green(`Done: ${basename(outputPath)}`));
+            }
+          } catch (error: unknown) {
+            counts.fail += 1;
+            const message = error instanceof Error ? error.message : String(error);
+            if (progressBar) {
+              process.stderr.write('\n');
+            }
+            console.error(chalk.red(`Failed (${relInput}): ${message}`));
+          }
+        };
+
+        await Promise.all(files.map((filePath) => limit(() => convert(filePath))));
+
+        if (!options.watch) {
+          if (progressBar) {
+            progressBar.update(files.length, { file: 'Complete' });
+            progressBar.stop();
+            progressBar = null;
+          }
+
+          if (counts.success) {
+            console.log(chalk.green(`\nSuccessfully converted ${counts.success} file(s).`));
+          }
+          if (counts.fail) {
+            throw new Error(`Failed to convert ${counts.fail} file(s).`);
+          }
+
+          await cleanup();
+          process.off('SIGINT', handleSignal);
+          process.off('SIGTERM', handleSignal);
+          return;
+        }
+
+        console.log(chalk.yellow('\nWatching for changes... (Press Ctrl+C to stop)'));
+        const queue = new ConversionQueue(limit);
+        watcher = chokidar.watch(inputs, {
+          ignored: /(^|[\/\\])\../,
+          persistent: true,
+          ignoreInitial: true
+        });
+
+        watcher.on('all', (event: string, changedPath: string) => {
+          if (!/\.(md|markdown)$/i.test(changedPath)) {
+            return;
+          }
+
+          const absoluteChangedPath = resolve(changedPath);
+
+          if (event === 'unlink') {
+            try {
+              const outputPath = resolveOutputPathForInput(
+                absoluteChangedPath,
+                outputStrategy,
+                describedInputs
+              );
+              const outputKey = getOutputCollisionKey(outputPath);
+              if (outputOwners.get(outputKey) === absoluteChangedPath) {
+                outputOwners.delete(outputKey);
+              }
+            } catch {
+              // Ignore unlink cleanup failures.
             }
             return;
           }
 
-          const outputPath = resolveOutputPathForInput(inputPath, outputStrategy, describedInputs);
-          const relOutput = relative(process.cwd(), outputPath);
-          const outputKey = getOutputCollisionKey(outputPath);
-          const existingOwner = outputOwners.get(outputKey);
-
-          if (existingOwner && existingOwner !== inputPath) {
-            throw new Error(
-              `Output path collision: ${relative(process.cwd(), existingOwner)} and ${relInput} both resolve to ${relOutput}.`
-            );
+          if (!['add', 'change'].includes(event)) {
+            return;
           }
 
-          outputOwners.set(outputKey, inputPath);
-          await mkdir(dirname(outputPath), { recursive: true });
-
-          if (progressBar) {
-            progressBar.update(counts.success + counts.fail, { file: relInput });
-          } else {
-            console.log(
-              chalk.blue(`Converting ${chalk.bold(relInput)} -> ${chalk.bold(relOutput)}...`)
-            );
-          }
-
-          const markdown = await readFile(inputPath, 'utf-8');
-          if (!renderer) {
-            throw new Error('Renderer is not initialized.');
-          }
-          if (outputStrategy.outputFormat === 'html') {
-            const html = await renderer.renderHtml(markdown, {
-              baseHref: buildRelativeBaseHref(outputPath, dirname(inputPath)),
-              linkTargetFormat: 'html'
-            });
-            await writeFile(outputPath, html, 'utf-8');
-          } else {
-            await renderer.generatePdf(markdown, outputPath, {
-              basePath: dirname(inputPath),
-              linkTargetFormat: 'pdf'
-            });
-          }
-
-          if (options.preserveTimestamp) {
-            await utimes(outputPath, inputStats.atime, inputStats.mtime);
-          }
-
-          counts.success += 1;
-          if (progressBar) {
-            progressBar.update(counts.success + counts.fail, { file: basename(outputPath) });
-          } else {
-            console.log(chalk.green(`Done: ${basename(outputPath)}`));
-          }
-        } catch (error: unknown) {
-          counts.fail += 1;
-          const message = error instanceof Error ? error.message : String(error);
-          if (progressBar) {
-            process.stderr.write('\n');
-          }
-          console.error(chalk.red(`Failed (${relInput}): ${message}`));
-        }
-      };
-
-      await Promise.all(files.map((filePath) => limit(() => convert(filePath))));
-
-      if (!options.watch) {
-        if (progressBar) {
-          progressBar.update(files.length, { file: 'Complete' });
-          progressBar.stop();
-          progressBar = null;
-        }
-
-        if (counts.success) {
-          console.log(chalk.green(`\nSuccessfully converted ${counts.success} file(s).`));
-        }
-        if (counts.fail) {
-          throw new Error(`Failed to convert ${counts.fail} file(s).`);
-        }
-
+          console.log(
+            chalk.cyan(
+              `\n${event === 'add' ? 'New file' : 'Change'} detected: ${relative(
+                process.cwd(),
+                absoluteChangedPath
+              )}`
+            )
+          );
+          queue.enqueue(absoluteChangedPath, convert);
+        });
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(chalk.red('Error:'), message);
         await cleanup();
         process.off('SIGINT', handleSignal);
         process.off('SIGTERM', handleSignal);
-        return;
+        process.exit(1);
       }
+    });
 
-      console.log(chalk.yellow('\nWatching for changes... (Press Ctrl+C to stop)'));
-      const queue = new ConversionQueue(limit);
-      watcher = chokidar.watch(inputs, {
-        ignored: /(^|[\/\\])\../,
-        persistent: true,
-        ignoreInitial: true
-      });
+  program.parse();
+};
 
-      watcher.on('all', (event: string, changedPath: string) => {
-        if (!/\.(md|markdown)$/i.test(changedPath)) {
-          return;
-        }
-
-        const absoluteChangedPath = resolve(changedPath);
-
-        if (event === 'unlink') {
-          try {
-            const outputPath = resolveOutputPathForInput(
-              absoluteChangedPath,
-              outputStrategy,
-              describedInputs
-            );
-            const outputKey = getOutputCollisionKey(outputPath);
-            if (outputOwners.get(outputKey) === absoluteChangedPath) {
-              outputOwners.delete(outputKey);
-            }
-          } catch {
-            // Ignore unlink cleanup failures.
-          }
-          return;
-        }
-
-        if (!['add', 'change'].includes(event)) {
-          return;
-        }
-
-        console.log(
-          chalk.cyan(
-            `\n${event === 'add' ? 'New file' : 'Change'} detected: ${relative(
-              process.cwd(),
-              absoluteChangedPath
-            )}`
-          )
-        );
-        queue.enqueue(absoluteChangedPath, convert);
-      });
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(chalk.red('Error:'), message);
-      await cleanup();
-      process.off('SIGINT', handleSignal);
-      process.off('SIGTERM', handleSignal);
-      process.exit(1);
-    }
-  });
-
-program.parse();
+if (process.argv[2] === 'assets') {
+  try {
+    await runAssetsCommand(process.argv.slice(3));
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(chalk.red('Error:'), message);
+    process.exit(1);
+  }
+} else {
+  await runConvertCli();
+}

@@ -29,6 +29,9 @@ convpdf "docs/**/*.md" --watch -o pdf/
 
 # Batch conversion with concurrency
 convpdf "docs/*.md" -o dist/ -j 4
+
+# Install offline runtime assets once
+convpdf assets install
 ```
 
 ## Options
@@ -48,6 +51,38 @@ convpdf "docs/*.md" -o dist/ -j 4
 - `--toc-depth <depth>`: TOC depth from `1` to `6`.
 - `--executable-path <path>`: Custom browser executable path.
 - `--preserve-timestamp`: Preserve modification time from markdown file.
+- `--asset-mode <mode>`: Runtime asset mode (`auto`, `local`, `cdn`; default: `auto`).
+- `--asset-cache-dir <path>`: Runtime asset cache directory override.
+- `--asset-fallback` / `--no-asset-fallback`: Enable/disable CDN fallback when local assets are missing.
+
+## Offline Runtime Assets
+
+`convpdf` can run fully offline for MathJax and Mermaid by installing runtime assets into a user cache.
+
+```bash
+# Install pinned runtime assets
+convpdf assets install
+
+# Verify cache integrity/presence
+convpdf assets verify
+
+# Refresh pinned assets
+convpdf assets update
+
+# Remove cached runtime assets
+convpdf assets clean
+```
+
+By default, conversion uses `--asset-mode auto`:
+
+- Uses local cached assets when installed.
+- Falls back to CDN when local assets are unavailable.
+
+For strict offline behavior:
+
+```bash
+convpdf input.md --asset-mode local --no-asset-fallback
+```
 
 ## Installation
 
@@ -70,6 +105,9 @@ css: ./styles/custom.css
 template: ./templates/report.html
 header: ./templates/header.html
 footer: ./templates/footer.html
+assetMode: auto
+assetCacheDir: ~/.cache/convpdf
+allowNetworkFallback: true
 ```
 
 Paths in config files are resolved relative to the config file location.

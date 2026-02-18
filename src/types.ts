@@ -17,6 +17,7 @@ export const PAPER_FORMATS = [
 export type PaperFormat = (typeof PAPER_FORMATS)[number];
 export type PaperFormatInput = PaperFormat | Lowercase<PaperFormat>;
 export type OutputFormat = 'pdf' | 'html';
+export type AssetMode = 'auto' | 'local' | 'cdn';
 
 export interface RendererOptions {
   margin?: string;
@@ -35,6 +36,13 @@ export interface RendererOptions {
   executablePath?: string;
   preserveTimestamp?: boolean;
   linkTargetFormat?: OutputFormat;
+  assetMode?: AssetMode;
+  assetCacheDir?: string;
+  allowNetworkFallback?: boolean;
+  mathJaxSrc?: string;
+  mermaidSrc?: string;
+  mathJaxBaseUrl?: string;
+  mathJaxFontBaseUrl?: string;
 }
 
 export interface Frontmatter {
