@@ -2,6 +2,8 @@
 
 Convert Markdown to high-quality PDF using Node.js, Marked, and Puppeteer.
 
+<a href="https://www.npmjs.com/package/convpdf"><img src="https://img.shields.io/npm/v/convpdf?style=for-the-badge&logo=npm" alt="NPM Version"></a>
+
 ## Features
 
 - **Zero-Config**: Beautiful defaults out of the box.
