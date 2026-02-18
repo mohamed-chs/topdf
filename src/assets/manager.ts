@@ -296,7 +296,7 @@ export const installRuntimeAssets = async (
   await ensureDir(paths.cacheRoot);
   const releaseLock = await acquireInstallLock(paths.cacheRoot);
   try {
-    if (!force && (await isRuntimeInstalled(paths.cacheRoot))) {
+    if (!force && (await isRuntimeInstalled(cacheDir))) {
       return { installed: false, runtimeDir: paths.runtimeDir };
     }
 

@@ -508,6 +508,12 @@ describe('Validation', () => {
       bottom: '3in',
       left: '2in'
     });
+    expect(parseMargin('10mm 12mm 14mm 16mm')).toEqual({
+      top: '10mm',
+      right: '12mm',
+      bottom: '14mm',
+      left: '16mm'
+    });
     expect(parseMargin('0')).toEqual({ top: '0', right: '0', bottom: '0', left: '0' });
     expect(parseMargin('0 10mm')).toEqual({ top: '0', right: '10mm', bottom: '0', left: '10mm' });
   });

@@ -192,6 +192,11 @@ pre code {
 .toc-level-5 { padding-left: 4rem; }
 .toc-level-6 { padding-left: 5rem; }
 
+img {
+  max-width: 100%;
+  height: auto;
+}
+
 @media print {
   body {
     padding: 0;

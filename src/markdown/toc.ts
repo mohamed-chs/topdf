@@ -5,10 +5,11 @@ import { normalizeTocDepth } from '../utils/validation.js';
 const stripNestedAnchors = (value: string): string =>
   value.replace(/<a\s+[^>]*>([\s\S]*?)<\/a>/gi, '$1');
 
+const inlineParser = new Marked();
+
 export const generateToc = (tokens: CustomToken[], depthInput?: number): string => {
   const depth = normalizeTocDepth(depthInput);
   const headings: TocHeading[] = [];
-  const inlineParser = new Marked();
 
   const walk = (items: CustomToken[]): void => {
     for (const token of items) {

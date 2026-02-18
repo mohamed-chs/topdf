@@ -112,6 +112,9 @@ interface AssetsCommandOptions {
   json?: boolean;
 }
 
+const MAX_WATCH_RETRIES = 5;
+const WATCH_RETRY_BASE_MS = 200;
+
 class ConversionQueue {
   private inFlight = new Set<string>();
   private needsRerun = new Set<string>();
@@ -126,14 +129,34 @@ class ConversionQueue {
 
     this.inFlight.add(filePath);
     void this.limit(async () => {
+      let consecutiveFailures = 0;
       try {
         do {
           this.needsRerun.delete(filePath);
           try {
             await convert(filePath);
+            consecutiveFailures = 0;
           } catch (error: unknown) {
+            consecutiveFailures += 1;
             const message = error instanceof Error ? error.message : String(error);
             console.error(chalk.red('Queue error:'), message);
+            if (consecutiveFailures >= MAX_WATCH_RETRIES && !this.needsRerun.has(filePath)) {
+              console.error(
+                chalk.yellow(
+                  `Skipping "${filePath}" after ${consecutiveFailures} consecutive failures.`
+                )
+              );
+              break;
+            }
+            if (this.needsRerun.has(filePath)) {
+              const backoffMs = Math.min(
+                WATCH_RETRY_BASE_MS * 2 ** (consecutiveFailures - 1),
+                5000
+              );
+              await new Promise<void>((r) => {
+                setTimeout(r, backoffMs);
+              });
+            }
           }
         } while (this.needsRerun.has(filePath));
       } finally {
@@ -650,7 +673,9 @@ const runConvertCli = async (): Promise<void> => {
 
   program
     .name('convpdf')
-    .description('Convert Markdown to high-quality PDF or HTML.')
+    .description(
+      'Convert Markdown to high-quality PDF or HTML.\n\nSubcommands:\n  convpdf assets <install|verify|update|clean>   Manage offline runtime assets'
+    )
     .version(pkg.version)
     .argument('<inputs...>', 'Input markdown files or glob patterns')
     .option('-o, --output <path>', 'Output directory or file path')
@@ -851,6 +876,7 @@ const runConvertCli = async (): Promise<void> => {
             counts.fail += 1;
             const message = error instanceof Error ? error.message : String(error);
             if (progressBar) {
+              progressBar.update(counts.success + counts.fail, { file: `FAILED: ${relInput}` });
               process.stderr.write('\n');
             }
             console.error(chalk.red(`Failed (${relInput}): ${message}`));

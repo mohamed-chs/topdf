@@ -35,9 +35,7 @@ const DEFAULT_TEMPLATE = `<!DOCTYPE html>
 </html>`;
 
 const serializeInlineScriptObject = (value: Record<string, unknown>): string =>
-  JSON.stringify(value, null, 2)
-    .replace(/</g, '\\u003c')
-    .replace(/<\/script/gi, '<\\/script');
+  JSON.stringify(value, null, 2).replace(/</g, '\\u003c');
 
 const buildMathJaxSnippet = (input: HtmlTemplateInput): string => {
   const mathJaxSrc = input.mathJaxSrc ?? 'https://cdn.jsdelivr.net/npm/mathjax@4/tex-chtml.js';
@@ -101,8 +99,7 @@ const loadTemplate = async (templatePath?: string | null): Promise<string> => {
   }
 };
 
-const replaceToken = (template: string, token: string, value: string): string =>
-  template.split(`{{${token}}}`).join(value);
+const TEMPLATE_TOKEN_PATTERN = /\{\{(title|base|css|content|mathjax|mermaid)\}\}/g;
 
 export const renderTemplate = async (input: HtmlTemplateInput): Promise<string> => {
   const template = await loadTemplate(input.templatePath);
@@ -111,15 +108,15 @@ export const renderTemplate = async (input: HtmlTemplateInput): Promise<string> 
     : input.basePath
       ? `<base href="${escapeHtml(pathToFileURL(resolve(input.basePath)).href)}/">`
       : '';
-  const mathJax = input.includeMathJax ? buildMathJaxSnippet(input) : '';
-  const mermaid = input.includeMermaid ? buildMermaidSnippet(input) : '';
 
-  let html = template;
-  html = replaceToken(html, 'title', escapeHtml(input.title));
-  html = replaceToken(html, 'base', baseTag);
-  html = replaceToken(html, 'css', input.css);
-  html = replaceToken(html, 'content', input.content);
-  html = replaceToken(html, 'mathjax', mathJax);
-  html = replaceToken(html, 'mermaid', mermaid);
-  return html;
+  const replacements: Record<string, string> = {
+    title: escapeHtml(input.title),
+    base: baseTag,
+    css: input.css,
+    content: input.content,
+    mathjax: input.includeMathJax ? buildMathJaxSnippet(input) : '',
+    mermaid: input.includeMermaid ? buildMermaidSnippet(input) : ''
+  };
+
+  return template.replace(TEMPLATE_TOKEN_PATTERN, (_, token: string) => replacements[token] ?? '');
 };

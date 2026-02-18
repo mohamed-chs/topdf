@@ -35,8 +35,7 @@ sequenceDiagram
 
 ## Notes
 
-- Mermaid fences are rendered as diagrams by default.
-- Use `--no-mermaid` to disable diagram rendering.
+- Mermaid fences are automatically rendered as diagrams when detected.
 
 ## Try It
 

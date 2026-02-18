@@ -500,7 +500,7 @@ export class Renderer {
         this.pageWaiters.push(resolveWaiter);
       });
       if (!this.browser) {
-        throw new Error('Browser not initialized');
+        throw new Error('Browser was closed while waiting for an available page');
       }
     }
     if (!this.browser) {
@@ -633,7 +633,11 @@ export class Renderer {
         assetCacheDir: opts.assetCacheDir
       });
 
-      const runtimeUsage = { math: hasMathSyntax(markdown), mermaid: hasMermaidSyntax(markdown) };
+      const strippedContent = parseFrontmatter(markdown).content;
+      const runtimeUsage = {
+        math: hasMathSyntax(strippedContent),
+        mermaid: hasMermaidSyntax(strippedContent)
+      };
       const runtimeAssets = await resolveRuntimeAssetPlan(opts, runtimeUsage, renderServer.baseUrl);
       if (runtimeAssets.warning) {
         console.warn(runtimeAssets.warning);

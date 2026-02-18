@@ -37,7 +37,7 @@ How about a link inside a footnote?[^link-fn]
 
 \# This is not a heading
 \* This is not a list
-\[TOC] This is not a TOC (because of the backslash - wait, my renderer doesn't handle escaped [TOC] yet)
+\[TOC] This is not a TOC (the backslash prevents the tokenizer from matching it)
 
 ## Image with Base Path
 ![Local Image](local-image.svg)

@@ -26,7 +26,7 @@ export const protectMath = (content: string): MathProtectionResult => {
   // Fence guards first so we never interpret math inside code blocks.
   let text = replaceWithPlaceholders(
     content,
-    /^( {0,3})(`{3,}|~{3,})[^\n]*\n[\s\S]*?\n\1\2[ \t]*$/gm,
+    /^( {0,3})(`{3,}|~{3,})[^\r\n]*\r?\n[\s\S]*?\r?\n\1\2[ \t]*$/gm,
     'CODE_FENCE',
     codeGuards
   );
@@ -37,13 +37,13 @@ export const protectMath = (content: string): MathProtectionResult => {
   // Display math blocks.
   text = replaceWithPlaceholders(
     text,
-    /^\$\$[ \t]*\n[\s\S]*?\n\$\$[ \t]*$/gm,
+    /^\$\$[ \t]*\r?\n[\s\S]*?\r?\n\$\$[ \t]*$/gm,
     'MATH_BLOCK',
     mathGuards
   );
   text = replaceWithPlaceholders(
     text,
-    /^\\\[[ \t]*\n[\s\S]*?\n\\\][ \t]*$/gm,
+    /^\\\[[ \t]*\r?\n[\s\S]*?\r?\n\\\][ \t]*$/gm,
     'MATH_BLOCK',
     mathGuards
   );
@@ -96,7 +96,7 @@ export const protectMath = (content: string): MathProtectionResult => {
 
 export const hasMathSyntax = (content: string): boolean => {
   const sanitized = content
-    .replace(/^( {0,3})(`{3,}|~{3,})[^\n]*\n[\s\S]*?\n\1\2[ \t]*$/gm, '')
+    .replace(/^( {0,3})(`{3,}|~{3,})[^\r\n]*\r?\n[\s\S]*?\r?\n\1\2[ \t]*$/gm, '')
     .replace(/`[^`\n]*`/g, '')
     .replace(/\[([^\]]*)\]\([^\)]+\)/g, '$1');
 
