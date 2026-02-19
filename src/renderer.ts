@@ -3,6 +3,7 @@ import { PDFDocument, PDFName, PDFDict, PDFString, PDFHexString } from 'pdf-lib'
 import puppeteer from 'puppeteer';
 import type { Browser, Page } from 'puppeteer';
 import { createServer, type IncomingMessage, type ServerResponse } from 'http';
+import { randomBytes } from 'crypto';
 import { mkdir, readFile, writeFile } from 'fs/promises';
 import { dirname, extname, join, relative, resolve } from 'path';
 import { fileURLToPath } from 'url';
@@ -55,7 +56,12 @@ interface RuntimeRenderOptions extends RendererOptions {
 
 interface RenderHttpServer {
   baseUrl: string;
-  setDocumentHtml: (html: string) => void;
+  registerDocument: (sourceBasePath?: string) => {
+    url: string;
+    sourceBaseUrl?: string;
+    setHtml: (html: string) => void;
+    dispose: () => void;
+  };
   close: () => Promise<void>;
 }
 
@@ -262,7 +268,10 @@ const toRelativeHrefFromServerUrl = (
     const prefix = '/__convpdf_source/';
     if (!parsed.pathname.startsWith(prefix)) return null;
 
-    const sourceRelative = decodeURIComponent(parsed.pathname.slice(prefix.length));
+    const sourcePathWithKey = parsed.pathname.slice(prefix.length);
+    const separatorIndex = sourcePathWithKey.indexOf('/');
+    if (separatorIndex < 0) return null;
+    const sourceRelative = decodeURIComponent(sourcePathWithKey.slice(separatorIndex + 1));
     const targetPath = resolve(basePath, sourceRelative);
     return normalizeRelativeHref(basePath, targetPath, `${parsed.search}${parsed.hash}`);
   } catch {
@@ -276,6 +285,13 @@ const rewritePdfFileUrisToRelative = async (
   renderServerBaseUrl?: string
 ): Promise<void> => {
   const pdfBytes = await readFile(outputPath);
+  const pdfText = pdfBytes.toString('latin1');
+  const hasFileUri = pdfText.includes('/URI (file:///');
+  const hasServerUri = renderServerBaseUrl ? pdfText.includes('/__convpdf_source/') : false;
+  if (!hasFileUri && !hasServerUri) {
+    return;
+  }
+
   const pdfDocument = await PDFDocument.load(pdfBytes, { updateMetadata: false });
   const actionKey = PDFName.of('A');
   const uriKey = PDFName.of('URI');
@@ -348,30 +364,44 @@ const resolveUnder = (basePath: string, relativePathValue: string): string | nul
 };
 
 const createRenderServer = async (options: {
-  sourceBasePath?: string;
   assetCacheDir?: string;
 }): Promise<RenderHttpServer> => {
-  let documentHtml = '';
   const runtimePaths = getRuntimeAssetPaths(options.assetCacheDir);
+  const documents = new Map<string, { html: string; sourceBasePath?: string }>();
 
   const handler = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     const requestUrl = new URL(req.url ?? '/', 'http://127.0.0.1');
     const pathname = decodeURIComponent(requestUrl.pathname);
 
-    if (pathname === '/document.html') {
+    const documentMatch = /^\/document\/([a-f0-9]+)\.html$/i.exec(pathname);
+    if (documentMatch) {
+      const documentId = documentMatch[1] ?? '';
+      const document = documents.get(documentId);
+      if (!document) {
+        sendError(res, 404);
+        return;
+      }
       res.statusCode = 200;
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
-      res.end(documentHtml);
+      res.end(document.html);
       return;
     }
 
     if (pathname.startsWith('/__convpdf_source/')) {
-      if (!options.sourceBasePath) {
+      const sourcePath = pathname.slice('/__convpdf_source/'.length);
+      const separatorIndex = sourcePath.indexOf('/');
+      if (separatorIndex < 0) {
         sendError(res, 404);
         return;
       }
-      const relPath = pathname.slice('/__convpdf_source/'.length);
-      const absolute = resolveUnder(options.sourceBasePath, relPath);
+      const documentId = sourcePath.slice(0, separatorIndex);
+      const relPath = sourcePath.slice(separatorIndex + 1);
+      const document = documents.get(documentId);
+      if (!document?.sourceBasePath) {
+        sendError(res, 404);
+        return;
+      }
+      const absolute = resolveUnder(document.sourceBasePath, relPath);
       if (!absolute) {
         sendError(res, 404);
         return;
@@ -436,8 +466,24 @@ const createRenderServer = async (options: {
 
   return {
     baseUrl: `http://127.0.0.1:${address.port}`,
-    setDocumentHtml: (html: string) => {
-      documentHtml = html;
+    registerDocument: (sourceBasePath?: string) => {
+      const id = randomBytes(10).toString('hex');
+      documents.set(id, { html: '', sourceBasePath });
+      return {
+        url: `http://127.0.0.1:${address.port}/document/${id}.html`,
+        sourceBaseUrl: sourceBasePath
+          ? `http://127.0.0.1:${address.port}/__convpdf_source/${id}/`
+          : undefined,
+        setHtml: (html: string) => {
+          const existing = documents.get(id);
+          if (existing) {
+            existing.html = html;
+          }
+        },
+        dispose: () => {
+          documents.delete(id);
+        }
+      };
     },
     close: () =>
       new Promise<void>((resolveClose) => {
@@ -451,6 +497,8 @@ const createRenderServer = async (options: {
 export class Renderer {
   private options: RendererOptions;
   private browser: Browser | null = null;
+  private renderServer: RenderHttpServer | null = null;
+  private renderServerAssetCacheDir: string | null = null;
   private initializing: Promise<void> | null = null;
   private activePages = 0;
   private readonly pageWaiters: Array<() => void> = [];
@@ -486,6 +534,11 @@ export class Renderer {
   }
 
   async close(): Promise<void> {
+    if (this.renderServer) {
+      await this.renderServer.close();
+      this.renderServer = null;
+      this.renderServerAssetCacheDir = null;
+    }
     if (!this.browser) return;
     await this.browser.close();
     this.browser = null;
@@ -522,6 +575,23 @@ export class Renderer {
     this.activePages = Math.max(0, this.activePages - 1);
     const wakeNext = this.pageWaiters.shift();
     if (wakeNext) wakeNext();
+  }
+
+  private async getRenderServer(assetCacheDir?: string): Promise<RenderHttpServer> {
+    const requestedCacheDir = assetCacheDir ? resolve(assetCacheDir) : null;
+    if (this.renderServer && this.renderServerAssetCacheDir === requestedCacheDir) {
+      return this.renderServer;
+    }
+
+    if (this.renderServer) {
+      await this.renderServer.close();
+      this.renderServer = null;
+      this.renderServerAssetCacheDir = null;
+    }
+
+    this.renderServer = await createRenderServer({ assetCacheDir });
+    this.renderServerAssetCacheDir = requestedCacheDir;
+    return this.renderServer;
   }
 
   async renderHtml(markdown: string, overrides: RendererOptions = {}): Promise<string> {
@@ -624,19 +694,23 @@ export class Renderer {
     await mkdir(dirname(outputPath), { recursive: true });
 
     let page: Page | null = null;
-    let renderServer: RenderHttpServer | null = null;
+    let documentHandle: {
+      url: string;
+      sourceBaseUrl?: string;
+      setHtml: (html: string) => void;
+      dispose: () => void;
+    } | null = null;
+    let renderServerBaseUrl: string | null = null;
 
     try {
       page = await this.acquirePage(opts.maxConcurrentPages);
-      renderServer = await createRenderServer({
-        sourceBasePath: opts.basePath,
-        assetCacheDir: opts.assetCacheDir
-      });
+      const renderServer = await this.getRenderServer(opts.assetCacheDir);
+      renderServerBaseUrl = renderServer.baseUrl;
+      documentHandle = renderServer.registerDocument(opts.basePath);
 
-      const strippedContent = parseFrontmatter(markdown).content;
       const runtimeUsage = {
-        math: hasMathSyntax(strippedContent),
-        mermaid: hasMermaidSyntax(strippedContent)
+        math: hasMathSyntax(markdown),
+        mermaid: hasMermaidSyntax(markdown)
       };
       const runtimeAssets = await resolveRuntimeAssetPlan(opts, runtimeUsage, renderServer.baseUrl);
       if (runtimeAssets.warning) {
@@ -646,17 +720,17 @@ export class Renderer {
       const html = await this.renderHtml(markdown, {
         ...opts,
         basePath: undefined,
-        baseHref: opts.basePath ? `${renderServer.baseUrl}/__convpdf_source/` : opts.baseHref,
+        baseHref: documentHandle.sourceBaseUrl ?? opts.baseHref,
         mathJaxSrc: runtimeAssets.mathJaxSrc,
         mermaidSrc: runtimeAssets.mermaidSrc,
         mathJaxBaseUrl: runtimeAssets.mathJaxBaseUrl,
         mathJaxFontBaseUrl: runtimeAssets.mathJaxFontBaseUrl
       });
-      renderServer.setDocumentHtml(html);
+      documentHandle.setHtml(html);
 
       await page.emulateMediaType('print');
-      await page.goto(`${renderServer.baseUrl}/document.html`, {
-        waitUntil: 'networkidle0',
+      await page.goto(documentHandle.url, {
+        waitUntil: 'domcontentloaded',
         timeout: RENDER_TIMEOUT_MS
       });
       await waitForDynamicContent(page);
@@ -671,22 +745,26 @@ export class Renderer {
         format,
         printBackground: true,
         margin,
-        waitForFonts: true,
+        waitForFonts: false,
         displayHeaderFooter: Boolean(opts.headerTemplate || opts.footerTemplate),
         headerTemplate: opts.headerTemplate || '<span></span>',
         footerTemplate: opts.footerTemplate || '<span></span>'
       });
 
       if (opts.basePath) {
-        await rewritePdfFileUrisToRelative(outputPath, opts.basePath, renderServer.baseUrl);
+        await rewritePdfFileUrisToRelative(
+          outputPath,
+          opts.basePath,
+          renderServerBaseUrl ?? undefined
+        );
       }
     } finally {
       if (page) {
         await page.close().catch(() => {});
         this.releasePage();
       }
-      if (renderServer) {
-        await renderServer.close().catch(() => {});
+      if (documentHandle) {
+        documentHandle.dispose();
       }
     }
   }
