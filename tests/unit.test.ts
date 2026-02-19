@@ -136,6 +136,8 @@ describe('Renderer', () => {
     const html = await renderer.renderHtml('```js\nconst x = 1;\n```\n\n| A |\n| - |\n| 1 |');
     expect(html).toMatch(/@media print[\s\S]*pre\s*\{[\s\S]*page-break-inside:\s*auto;/);
     expect(html).toMatch(/@media print[\s\S]*table\s*\{[\s\S]*page-break-inside:\s*auto;/);
+    expect(html).toMatch(/@media print[\s\S]*table\s*\{[\s\S]*table-layout:\s*auto;/);
+    expect(html).not.toMatch(/@media print[\s\S]*table\s*\{[\s\S]*table-layout:\s*fixed;/);
     expect(html).toContain('blockquote, .toc, .callout { page-break-inside: avoid; }');
   });
 

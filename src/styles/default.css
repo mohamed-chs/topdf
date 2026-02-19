@@ -111,6 +111,7 @@ table {
   border-spacing: 0;
   border-collapse: collapse;
   width: 100%;
+  table-layout: auto;
 }
 
 table th, table td {
@@ -222,7 +223,7 @@ img {
   }
 
   table {
-    table-layout: fixed;
+    table-layout: auto;
     width: 100%;
     break-inside: auto;
     page-break-inside: auto;
