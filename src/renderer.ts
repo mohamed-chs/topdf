@@ -3,7 +3,6 @@ import { PDFDocument, PDFName, PDFDict, PDFString, PDFHexString } from 'pdf-lib'
 import puppeteer from 'puppeteer';
 import type { Browser, Page } from 'puppeteer';
 import { createServer, type IncomingMessage, type ServerResponse } from 'http';
-import { randomBytes } from 'crypto';
 import { mkdir, readFile, writeFile } from 'fs/promises';
 import { dirname, extname, join, relative, resolve } from 'path';
 import { fileURLToPath } from 'url';
@@ -80,6 +79,7 @@ const MIME_TYPES: Readonly<Record<string, string>> = {
   '.woff': 'font/woff',
   '.ttf': 'font/ttf'
 };
+const RUNTIME_CACHE_CONTROL = 'public, max-age=31536000, immutable';
 
 const mergeOptions = (base: RendererOptions, overrides: RendererOptions): RuntimeRenderOptions => {
   const merged = { ...DEFAULT_RENDERER_OPTIONS, ...base, ...overrides };
@@ -285,9 +285,10 @@ const rewritePdfFileUrisToRelative = async (
   renderServerBaseUrl?: string
 ): Promise<void> => {
   const pdfBytes = await readFile(outputPath);
-  const pdfText = pdfBytes.toString('latin1');
-  const hasFileUri = pdfText.includes('/URI (file:///');
-  const hasServerUri = renderServerBaseUrl ? pdfText.includes('/__convpdf_source/') : false;
+  const hasFileUri = pdfBytes.includes(Buffer.from('/URI (file:///'));
+  const hasServerUri = renderServerBaseUrl
+    ? pdfBytes.includes(Buffer.from('/__convpdf_source/'))
+    : false;
   if (!hasFileUri && !hasServerUri) {
     return;
   }
@@ -337,14 +338,25 @@ const sendError = (res: ServerResponse, code: number): void => {
   res.end(code === 404 ? 'Not Found' : 'Internal Server Error');
 };
 
-const serveFile = async (res: ServerResponse, absolutePath: string): Promise<void> => {
+const serveFile = async (
+  res: ServerResponse,
+  absolutePath: string,
+  options?: { cacheControl?: string; memoryCache?: Map<string, Buffer> }
+): Promise<void> => {
   try {
-    const buffer = await readFile(absolutePath);
+    const cachedBuffer = options?.memoryCache?.get(absolutePath);
+    const buffer = cachedBuffer ?? (await readFile(absolutePath));
+    if (!cachedBuffer && options?.memoryCache) {
+      options.memoryCache.set(absolutePath, buffer);
+    }
     res.statusCode = 200;
     res.setHeader(
       'Content-Type',
       MIME_TYPES[extname(absolutePath).toLowerCase()] ?? 'application/octet-stream'
     );
+    if (options?.cacheControl) {
+      res.setHeader('Cache-Control', options.cacheControl);
+    }
     res.end(buffer);
   } catch {
     sendError(res, 404);
@@ -368,6 +380,8 @@ const createRenderServer = async (options: {
 }): Promise<RenderHttpServer> => {
   const runtimePaths = getRuntimeAssetPaths(options.assetCacheDir);
   const documents = new Map<string, { html: string; sourceBasePath?: string }>();
+  const runtimeAssetCache = new Map<string, Buffer>();
+  let nextDocumentId = 1;
 
   const handler = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     const requestUrl = new URL(req.url ?? '/', 'http://127.0.0.1');
@@ -417,7 +431,10 @@ const createRenderServer = async (options: {
         sendError(res, 404);
         return;
       }
-      await serveFile(res, absolute);
+      await serveFile(res, absolute, {
+        cacheControl: RUNTIME_CACHE_CONTROL,
+        memoryCache: runtimeAssetCache
+      });
       return;
     }
 
@@ -428,12 +445,18 @@ const createRenderServer = async (options: {
         sendError(res, 404);
         return;
       }
-      await serveFile(res, absolute);
+      await serveFile(res, absolute, {
+        cacheControl: RUNTIME_CACHE_CONTROL,
+        memoryCache: runtimeAssetCache
+      });
       return;
     }
 
     if (pathname === '/__convpdf_assets/mermaid/mermaid.min.js') {
-      await serveFile(res, runtimePaths.mermaidPath);
+      await serveFile(res, runtimePaths.mermaidPath, {
+        cacheControl: RUNTIME_CACHE_CONTROL,
+        memoryCache: runtimeAssetCache
+      });
       return;
     }
 
@@ -467,7 +490,8 @@ const createRenderServer = async (options: {
   return {
     baseUrl: `http://127.0.0.1:${address.port}`,
     registerDocument: (sourceBasePath?: string) => {
-      const id = randomBytes(10).toString('hex');
+      const id = String(nextDocumentId);
+      nextDocumentId += 1;
       documents.set(id, { html: '', sourceBasePath });
       return {
         url: `http://127.0.0.1:${address.port}/document/${id}.html`,
@@ -499,6 +523,7 @@ export class Renderer {
   private browser: Browser | null = null;
   private renderServer: RenderHttpServer | null = null;
   private renderServerAssetCacheDir: string | null = null;
+  private readonly cssCache = new Map<string, Promise<string>>();
   private initializing: Promise<void> | null = null;
   private activePages = 0;
   private readonly pageWaiters: Array<() => void> = [];
@@ -594,14 +619,54 @@ export class Renderer {
     return this.renderServer;
   }
 
-  async renderHtml(markdown: string, overrides: RendererOptions = {}): Promise<string> {
-    const opts = mergeOptions(this.options, overrides);
+  private async readCustomCss(pathValue?: string | null): Promise<string> {
+    if (!pathValue) return '';
+    const absolutePath = resolve(pathValue);
+    const cached = this.cssCache.get(absolutePath);
+    if (cached) return cached;
+
+    const readPromise = (async () => {
+      try {
+        return await readFile(absolutePath, 'utf-8');
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`Failed to read custom CSS at "${pathValue}": ${message}`);
+      }
+    })();
+
+    this.cssCache.set(absolutePath, readPromise);
+    try {
+      return await readPromise;
+    } catch (error) {
+      this.cssCache.delete(absolutePath);
+      throw error;
+    }
+  }
+
+  private async buildRenderedDocument(
+    markdown: string,
+    opts: RuntimeRenderOptions,
+    runtimeAssetsOverride?: {
+      mathJaxSrc?: string;
+      mermaidSrc?: string;
+      mathJaxBaseUrl?: string;
+      mathJaxFontBaseUrl?: string;
+      warning?: string;
+    }
+  ): Promise<string> {
     const parsedFrontmatter = parseFrontmatter(markdown);
     const { data, content } = parsedFrontmatter;
     for (const warning of parsedFrontmatter.warnings) {
       console.warn(warning);
     }
 
+    const runtimeUsage = { math: hasMathSyntax(content), mermaid: hasMermaidSyntax(content) };
+    const runtimeAssets =
+      runtimeAssetsOverride ??
+      (await resolveRuntimeAssetPlan(opts, runtimeUsage, this.renderServer?.baseUrl));
+    if (runtimeAssets.warning) {
+      console.warn(runtimeAssets.warning);
+    }
     const slugger = new GithubSlugger();
     const marked = createMarkedInstance(slugger, opts.linkTargetFormat);
 
@@ -637,16 +702,7 @@ export class Renderer {
       }
     }
 
-    let customCssContent = '';
-    if (opts.customCss) {
-      try {
-        customCssContent = await readFile(resolve(opts.customCss), 'utf-8');
-      } catch (error: unknown) {
-        const message = error instanceof Error ? error.message : String(error);
-        throw new Error(`Failed to read custom CSS at "${opts.customCss}": ${message}`);
-      }
-    }
-
+    const customCssContent = await this.readCustomCss(opts.customCss);
     const [defaultCss, highlightCss] = await stylesPromise;
     const css = `${defaultCss}\n${highlightCss}\n${customCssContent}`;
     const title =
@@ -655,13 +711,6 @@ export class Renderer {
         : typeof data.title === 'string'
           ? data.title
           : 'Markdown Document';
-
-    const runtimeUsage = { math: hasMathSyntax(content), mermaid: hasMermaidSyntax(content) };
-    const runtimeAssets = await resolveRuntimeAssetPlan(opts, runtimeUsage);
-
-    if (runtimeAssets.warning) {
-      console.warn(runtimeAssets.warning);
-    }
 
     return renderTemplate({
       templatePath: opts.template,
@@ -677,6 +726,11 @@ export class Renderer {
       mathJaxBaseUrl: runtimeAssets.mathJaxBaseUrl,
       mathJaxFontBaseUrl: runtimeAssets.mathJaxFontBaseUrl
     });
+  }
+
+  async renderHtml(markdown: string, overrides: RendererOptions = {}): Promise<string> {
+    const opts = mergeOptions(this.options, overrides);
+    return this.buildRenderedDocument(markdown, opts);
   }
 
   async generatePdf(
@@ -708,23 +762,10 @@ export class Renderer {
       renderServerBaseUrl = renderServer.baseUrl;
       documentHandle = renderServer.registerDocument(opts.basePath);
 
-      const runtimeUsage = {
-        math: hasMathSyntax(markdown),
-        mermaid: hasMermaidSyntax(markdown)
-      };
-      const runtimeAssets = await resolveRuntimeAssetPlan(opts, runtimeUsage, renderServer.baseUrl);
-      if (runtimeAssets.warning) {
-        console.warn(runtimeAssets.warning);
-      }
-
-      const html = await this.renderHtml(markdown, {
+      const html = await this.buildRenderedDocument(markdown, {
         ...opts,
         basePath: undefined,
-        baseHref: documentHandle.sourceBaseUrl ?? opts.baseHref,
-        mathJaxSrc: runtimeAssets.mathJaxSrc,
-        mermaidSrc: runtimeAssets.mermaidSrc,
-        mathJaxBaseUrl: runtimeAssets.mathJaxBaseUrl,
-        mathJaxFontBaseUrl: runtimeAssets.mathJaxFontBaseUrl
+        baseHref: documentHandle.sourceBaseUrl ?? opts.baseHref
       });
       documentHandle.setHtml(html);
 

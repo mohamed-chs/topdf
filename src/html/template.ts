@@ -33,6 +33,7 @@ const DEFAULT_TEMPLATE = `<!DOCTYPE html>
     {{content}}
   </body>
 </html>`;
+const templateCache = new Map<string, Promise<string>>();
 
 const serializeInlineScriptObject = (value: Record<string, unknown>): string =>
   JSON.stringify(value, null, 2).replace(/</g, '\\u003c');
@@ -91,11 +92,24 @@ const buildMermaidSnippet = (input: HtmlTemplateInput): string => {
 
 const loadTemplate = async (templatePath?: string | null): Promise<string> => {
   if (!templatePath) return DEFAULT_TEMPLATE;
+  const resolvedTemplatePath = resolve(templatePath);
+  const cached = templateCache.get(resolvedTemplatePath);
+  if (cached) return cached;
+
+  const loadPromise = (async () => {
+    try {
+      return await readFile(resolvedTemplatePath, 'utf-8');
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to read template at "${templatePath}": ${message}`);
+    }
+  })();
+  templateCache.set(resolvedTemplatePath, loadPromise);
   try {
-    return await readFile(resolve(templatePath), 'utf-8');
+    return await loadPromise;
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Failed to read template at "${templatePath}": ${message}`);
+    templateCache.delete(resolvedTemplatePath);
+    throw error;
   }
 };
 

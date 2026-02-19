@@ -41,9 +41,11 @@
 - Rendering is automatic and syntax-driven for MathJax and Mermaid; keep it that way (no user-facing toggles).
 - **`src/renderer.ts`**: The **ORCHESTRATOR**. Coordinates markdown parsing, HTML assembly, browser rendering, and PDF generation.
   - HTML mode should continue to use `renderHtml(...)` directly without launching a browser, while PDF mode uses Puppeteer.
+  - PDF generation must compile markdown exactly once per document (avoid duplicate parse/tokenize/template work inside the PDF flow).
   - PDF rendering serves in-memory HTML via a renderer-scoped localhost server reused across conversions; keep deterministic server lifecycle management and cache-dir-aware reinitialization.
   - Each PDF job must use a unique document route (`/document/<id>.html`) and source route namespace (`/__convpdf_source/<id>/...`) so concurrent conversions remain isolated.
   - Local runtime assets are served from the same localhost origin during PDF rendering to avoid cross-origin issues with MathJax/Mermaid/font loading.
+  - Localhost runtime-asset responses should remain browser-cacheable and memory-cached server-side to reduce repeated filesystem reads in batch conversions.
   - Runtime asset resolution is syntax-driven and lazy: documents with no math/mermaid syntax must render without requiring installed runtime assets, even under strict local/no-fallback policy.
   - After PDF generation, file-link annotations are rewritten from absolute `file:///...` URIs to relative paths (based on the markdown source directory) to keep outputs portable across environments.
   - Preserve rewrite support for localhost-served source links (`/__convpdf_source/<id>/...`) so PDF links stay portable.
@@ -58,6 +60,7 @@
   - Keep `manager.ts` exports minimal and operational (no unused helper exports); resolve file URLs at call sites unless reused by multiple runtime paths.
   - Runtime verification should validate NewCM font package structure (`chtml.js` plus non-empty `chtml/woff2`) rather than hard-coding one specific font filename.
   - `resolve.ts` maps asset policy (`auto|local|cdn`) to concrete script/font URLs (local cache, localhost-served, or CDN).
+  - `resolve.ts` should memoize resolution results (including local-install checks) per effective policy/config tuple to avoid repeated filesystem probing during batch renders.
   - `allowNetworkFallback: false` is strict for both `auto` and `local`; missing local assets must fail fast with an actionable install command.
   - Asset downloads must be timeout-bounded, and install/clean operations must be lock-serialized per cache root to avoid concurrent staging races.
 - **`src/markdown/`**: Markdown pipeline modules:
@@ -67,6 +70,7 @@
   - `marked.ts` for Marked setup/extensions/safe links, callout/alert parsing (`> [!note]`, `> [!NOTE]`), and strict line-only `[TOC]` placeholder tokenization.
   - `toc.ts` for TOC generation
 - **`src/html/template.ts`**: HTML document assembly with safe token replacement and optional MathJax/Mermaid script injection.
+  - Template file loading should be memoized by absolute path within a process to remove redundant filesystem reads during multi-file conversions.
   - Math rendering is on MathJax v4 and Mermaid v11 with runtime URL injection; keep delimiter config and MathJax loader/font path wiring aligned with upstream docs.
 - **`src/utils/`**: Shared helpers:
   - `html.ts` for escaping/sanitization

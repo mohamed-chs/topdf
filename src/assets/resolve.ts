@@ -21,6 +21,18 @@ export interface RuntimeAssetResolution {
 }
 
 const trimTrailingSlash = (value: string): string => value.replace(/\/+$/, '');
+const runtimeInstalledCache = new Map<string, Promise<boolean>>();
+const runtimeAssetResolutionCache = new Map<string, Promise<RuntimeAssetResolution>>();
+
+const resolveInstalledCached = (cacheDir?: string): Promise<boolean> => {
+  const cacheKey = resolveAssetCacheDir(cacheDir);
+  const cached = runtimeInstalledCache.get(cacheKey);
+  if (cached) return cached;
+
+  const checkPromise = isRuntimeInstalled(cacheDir);
+  runtimeInstalledCache.set(cacheKey, checkPromise);
+  return checkPromise;
+};
 
 const toServerRuntimeUrls = (
   serverBaseUrl: string
@@ -44,48 +56,61 @@ export const resolveRuntimeAssetSources = async (
 ): Promise<RuntimeAssetResolution> => {
   const mode = input.mode ?? 'auto';
   const allowNetworkFallback = input.allowNetworkFallback ?? true;
+  const cacheRoot = resolveAssetCacheDir(input.cacheDir);
+  const normalizedServerBaseUrl = input.serverBaseUrl ? trimTrailingSlash(input.serverBaseUrl) : '';
+  const cacheKey = `${mode}|${allowNetworkFallback ? '1' : '0'}|${cacheRoot}|${normalizedServerBaseUrl}`;
+  const cached = runtimeAssetResolutionCache.get(cacheKey);
+  if (cached) return cached;
 
-  if (mode === 'cdn') {
-    return {
-      mathJaxSrc: CDN_MATHJAX_SRC,
-      mermaidSrc: CDN_MERMAID_SRC
-    };
-  }
-
-  const installed = await isRuntimeInstalled(input.cacheDir);
-  if (installed) {
-    const paths = getRuntimeAssetPaths(input.cacheDir);
-    if (input.serverBaseUrl) {
-      const urls = toServerRuntimeUrls(input.serverBaseUrl);
-      return urls;
+  const resolutionPromise = (async (): Promise<RuntimeAssetResolution> => {
+    if (mode === 'cdn') {
+      return {
+        mathJaxSrc: CDN_MATHJAX_SRC,
+        mermaidSrc: CDN_MERMAID_SRC
+      };
     }
 
-    const mathJaxSrc = pathToFileURL(paths.mathJaxPath).href;
-    const mermaidSrc = pathToFileURL(paths.mermaidPath).href;
+    const installed = await resolveInstalledCached(input.cacheDir);
+    if (installed) {
+      const paths = getRuntimeAssetPaths(input.cacheDir);
+      if (input.serverBaseUrl) {
+        const urls = toServerRuntimeUrls(input.serverBaseUrl);
+        return urls;
+      }
+
+      const mathJaxSrc = pathToFileURL(paths.mathJaxPath).href;
+      const mermaidSrc = pathToFileURL(paths.mermaidPath).href;
+      return {
+        mathJaxSrc,
+        mermaidSrc,
+        mathJaxBaseUrl: mathJaxSrc.replace(/\/tex-chtml\.js$/, ''),
+        mathJaxFontBaseUrl: trimTrailingSlash(pathToFileURL(paths.mathJaxFontDir).href)
+      };
+    }
+
+    if (!allowNetworkFallback) {
+      throw new Error(
+        `Local runtime assets are required but missing. Run: convpdf assets install --cache-dir "${cacheRoot}"`
+      );
+    }
+
+    const warning =
+      mode === 'local'
+        ? 'Local runtime assets were not found. Falling back to CDN assets.'
+        : undefined;
+
     return {
-      mathJaxSrc,
-      mermaidSrc,
-      mathJaxBaseUrl: mathJaxSrc.replace(/\/tex-chtml\.js$/, ''),
-      mathJaxFontBaseUrl: trimTrailingSlash(pathToFileURL(paths.mathJaxFontDir).href)
+      mathJaxSrc: CDN_MATHJAX_SRC,
+      mermaidSrc: CDN_MERMAID_SRC,
+      warning: allowNetworkFallback ? warning : undefined
     };
+  })();
+
+  runtimeAssetResolutionCache.set(cacheKey, resolutionPromise);
+  try {
+    return await resolutionPromise;
+  } catch (error) {
+    runtimeAssetResolutionCache.delete(cacheKey);
+    throw error;
   }
-
-  if (!allowNetworkFallback) {
-    throw new Error(
-      `Local runtime assets are required but missing. Run: convpdf assets install --cache-dir "${resolveAssetCacheDir(
-        input.cacheDir
-      )}"`
-    );
-  }
-
-  const warning =
-    mode === 'local'
-      ? 'Local runtime assets were not found. Falling back to CDN assets.'
-      : undefined;
-
-  return {
-    mathJaxSrc: CDN_MATHJAX_SRC,
-    mermaidSrc: CDN_MERMAID_SRC,
-    warning: allowNetworkFallback ? warning : undefined
-  };
 };
