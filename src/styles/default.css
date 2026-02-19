@@ -216,11 +216,25 @@ img {
   pre {
     white-space: pre-wrap;
     word-break: break-all;
+    overflow: visible;
+    break-inside: auto;
+    page-break-inside: auto;
   }
 
   table {
     table-layout: fixed;
     width: 100%;
+    break-inside: auto;
+    page-break-inside: auto;
+  }
+
+  thead {
+    display: table-header-group;
+  }
+
+  tr, th, td {
+    break-inside: auto;
+    page-break-inside: auto;
   }
 
   img {
@@ -230,5 +244,5 @@ img {
 
   .page-break { page-break-before: always; }
   h1, h2, h3, h4, h5, h6 { page-break-after: avoid; }
-  table, pre, blockquote, .toc, .callout { page-break-inside: avoid; }
+  blockquote, .toc, .callout { page-break-inside: avoid; }
 }

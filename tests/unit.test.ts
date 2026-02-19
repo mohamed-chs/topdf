@@ -132,6 +132,13 @@ describe('Renderer', () => {
     expect(html).toContain('class="footnotes"');
   });
 
+  it('allows print pagination splits inside tables and code blocks', async () => {
+    const html = await renderer.renderHtml('```js\nconst x = 1;\n```\n\n| A |\n| - |\n| 1 |');
+    expect(html).toMatch(/@media print[\s\S]*pre\s*\{[\s\S]*page-break-inside:\s*auto;/);
+    expect(html).toMatch(/@media print[\s\S]*table\s*\{[\s\S]*page-break-inside:\s*auto;/);
+    expect(html).toContain('blockquote, .toc, .callout { page-break-inside: avoid; }');
+  });
+
   it('renders page-break markers and preserves markdown link suffixes', async () => {
     const html = await renderer.renderHtml(
       '# A\n\n<!-- PAGE_BREAK -->\n\n[Doc](./guide.md?x=1#top) [Notes](./notes.markdown#frag?x=1)'

@@ -72,6 +72,7 @@
   - Href sanitization for rendered HTML must reject `file:` links and protocol-relative URLs (`//...`) (relative links remain allowed); only explicit web-safe protocols should pass.
 - **`src/types.ts`**: The **TYPE DEFINITIONS**. Contains interfaces and types used throughout the project to ensure strict type safety.
 - **`src/styles/`**: Contains the **DESIGN DNA**. `default.css` provides the professional document layout, and `github.css` handles syntax highlighting themes.
+  - Default print pagination must allow `table` and `pre` content to split across pages (no forced pre-break when they do not fit), while still keeping headings/callouts/TOC visually stable.
 - **`tests/`**: The **QUALITY GATE**. Consolidated into `unit.test.ts` (logic/parsing) and `cli.test.ts` (integration/E2E).
   - CLI tests run in a shared suite-scoped temp root with per-case subdirectories; keep this pattern to reduce filesystem churn while preserving isolation.
   - Keep regression coverage that conversion leaves no `convpdf-*` temp artifacts when `TMPDIR`/`TMP`/`TEMP` are scoped to a case-local directory.
