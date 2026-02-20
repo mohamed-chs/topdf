@@ -212,7 +212,20 @@ const waitForDynamicContent = async (page: Page): Promise<void> => {
       if (win.MathJax?.startup?.promise) {
         await win.MathJax.startup.promise;
       }
-      await win.MathJax?.typesetPromise?.();
+      // After startup, typesetPromise should be available. Wait for it explicitly
+      // so that math is never silently skipped if startup resolved just before typesetPromise
+      // was registered.
+      if (typeof win.MathJax?.typesetPromise !== 'function') {
+        await waitUntil(
+          () => typeof win.MathJax?.typesetPromise === 'function',
+          5000,
+          'MathJax typesetPromise'
+        );
+      }
+      const mathjax = win.MathJax;
+      if (mathjax && typeof mathjax.typesetPromise === 'function') {
+        await mathjax.typesetPromise();
+      }
     }
 
     if (document.getElementById('Mermaid-script') && document.querySelector('.mermaid')) {
@@ -284,14 +297,10 @@ const rewritePdfFileUrisToRelative = async (
   basePath: string,
   renderServerBaseUrl?: string
 ): Promise<void> => {
+  // Parse the full PDF to handle both PDFString and PDFHexString-encoded URIs.
+  // Byte-scanning for '/URI (file:///' would miss hex-encoded annotations.
+  // We rely on the `!changed` guard below to avoid re-saving when unneeded.
   const pdfBytes = await readFile(outputPath);
-  const hasFileUri = pdfBytes.includes(Buffer.from('/URI (file:///'));
-  const hasServerUri = renderServerBaseUrl
-    ? pdfBytes.includes(Buffer.from('/__convpdf_source/'))
-    : false;
-  if (!hasFileUri && !hasServerUri) {
-    return;
-  }
 
   const pdfDocument = await PDFDocument.load(pdfBytes, { updateMetadata: false });
   const actionKey = PDFName.of('A');
@@ -677,6 +686,10 @@ export class Renderer {
     } = protectMath(content);
     const tokens = marked.lexer(safeContent) as unknown as CustomToken[];
 
+    // Restore math placeholders in heading text so the TOC renders real LaTeX, not tokens.
+    // This must happen before walkTokens so heading IDs (used by the TOC) are based on the
+    // restored math text. Marked's lexer does NOT run walkTokens automatically — it only
+    // runs during parser(); but generateToc needs the IDs before parser() is called.
     restoreMathInHeadingTokens(tokens, restoreMath);
     if (marked.defaults.walkTokens) {
       void marked.walkTokens(tokens as unknown as Token[], marked.defaults.walkTokens);

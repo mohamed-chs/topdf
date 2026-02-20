@@ -25,7 +25,7 @@ export const parseMargin = (rawMargin?: string | number): PDFMargin => {
   for (const part of parts) {
     if (!VALID_MARGIN.test(part)) {
       throw new Error(
-        `Invalid margin token "${part}". Expected numeric value with optional unit (mm, cm, in, px, pt, pc).`
+        `Invalid margin token "${part}". Expected 0 or a non-zero value with a CSS length unit (mm, cm, in, px, pt, pc).`
       );
     }
   }

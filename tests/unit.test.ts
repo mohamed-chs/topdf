@@ -448,6 +448,14 @@ describe('Renderer', () => {
     expect(hasMermaidSyntax('```mermaid\ngraph LR;\nA-->B;\n```')).toBe(true);
     expect(hasMermaidSyntax('```js\nconsole.log("plain");\n```')).toBe(false);
   });
+
+  it('generates stable deduplicated anchor IDs for duplicate headings', async () => {
+    // IDs are assigned once via the explicit walkTokens call; duplicates should
+    // get the standard github-slugger -1/-2 suffixes.
+    const html = await renderer.renderHtml('# A\n\n## B\n\n# A\n\n## B');
+    const idMatches = [...html.matchAll(/id="([^"]+)"/g)].map((m) => m[1]);
+    expect(idMatches).toEqual(['a', 'b', 'a-1', 'b-1']);
+  });
 });
 
 describe('Asset resolution', () => {
@@ -576,6 +584,14 @@ describe('Math Detection', () => {
     expect(hasMathSyntax('Inline $x^2$ math')).toBe(true);
     expect(hasMathSyntax('```js\nconst x = "$not-math$";\n```')).toBe(false);
     expect(hasMathSyntax('[label $x$](https://example.com)')).toBe(true);
+  });
+
+  it('does not produce false-positive math detection for multi-backtick code spans', () => {
+    // Double-backtick spans enclosing dollar signs must not trigger math detection.
+    expect(hasMathSyntax('``$price = 100$``')).toBe(false);
+    expect(hasMathSyntax('``$x^2 + y^2$`` is a formula name')).toBe(false);
+    // Real inline math outside a code span should still be detected.
+    expect(hasMathSyntax('``code`` and $x^2$')).toBe(true);
   });
 });
 

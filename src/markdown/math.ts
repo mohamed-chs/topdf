@@ -135,7 +135,7 @@ export const protectMath = (content: string): MathProtectionResult => {
 export const hasMathSyntax = (content: string): boolean => {
   const sanitized = content
     .replace(/^( {0,3})(`{3,}|~{3,})[^\r\n]*\r?\n[\s\S]*?\r?\n\1\2[ \t]*$/gm, '')
-    .replace(/`[^`\n]*`/g, '')
+    .replace(/(`+)([^`\n]|`(?!\1))+?\1/g, '')
     .replace(/\[([^\]]*)\]\([^\)]+\)/g, '$1');
 
   return /(?<!\\)\$[^$\n]+\$|(?<!\\)\$\$[\s\S]+?\$\$|\\\([^\n]+?\\\)|\\\[[\s\S]+?\\\]/.test(
