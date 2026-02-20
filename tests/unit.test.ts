@@ -184,6 +184,41 @@ describe('Renderer', () => {
     expect(pageBreakMatches).toHaveLength(1);
   });
 
+  it('keeps distinct inline code spans when there are 10+ placeholders', async () => {
+    const html = await renderer.renderHtml(
+      [
+        '`cargo test`',
+        '`desert check`',
+        '`examples/*.ds`',
+        '`.ds`',
+        '`primary -> multiplicative -> additive -> comparison -> assignment`',
+        '`move expr`',
+        '`std::mem::take(&mut expr)`',
+        '`self`',
+        '`self`',
+        '`&self`',
+        '`&mut self`',
+        '`@`',
+        '`*`',
+        '`Resolver`',
+        '`tests/check_examples.rs`',
+        '`overview.md`',
+        '`handoff.md`',
+        '`plan.md`'
+      ].join(' ')
+    );
+
+    expect(html).toContain('<code>cargo test</code>');
+    expect(html).toContain('<code>desert check</code>');
+    expect(html).toContain('<code>examples/*.ds</code>');
+    expect(html).toContain('<code>&amp;self</code>');
+    expect(html).toContain('<code>&amp;mut self</code>');
+    expect(html).toContain('<code>@</code>');
+    expect(html).toContain('<code>*</code>');
+    expect(html).not.toContain('<code>cargo test0</code>');
+    expect(html).not.toContain('<code>desert check0</code>');
+  });
+
   it('generates TOC for placeholders and global toc mode', async () => {
     const placeholderHtml = await renderer.renderHtml('# One\n\n[TOC]\n\n## Two\n\n[TOC]', {
       toc: true

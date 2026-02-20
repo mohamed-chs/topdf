@@ -12,7 +12,7 @@ const replaceWithPlaceholders = (
   createId: () => string
 ): string =>
   input.replace(pattern, (match) => {
-    const id = `${keyPrefix}_${createId()}`;
+    const id = `@@${keyPrefix}_${createId()}@@`;
     store.set(id, match);
     return id;
   });

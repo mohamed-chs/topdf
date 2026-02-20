@@ -89,6 +89,7 @@
   - Keep regression coverage for CLI/config precedence so Commander defaults never silently override `.convpdfrc*` values when flags are omitted.
   - Keep regression coverage for math-bearing headings so TOC labels and anchor IDs remain correct (no placeholder leakage).
   - Keep regression coverage for escaped literals: inline-code `` `<!-- PAGE_BREAK -->` `` must not trigger page breaks, and escaped dollars (`\$`) must remain literal (non-math) even when MathJax is enabled by nearby equations.
+  - Keep regression coverage for high-count inline code spans (10+) so math-placeholder restoration never causes prefix-collision rewrites (`token_1` must not mutate `token_10`, etc.).
   - Keep regression coverage for blockquote-based callouts/alerts: Obsidian and GitHub syntax must render to `.callout` containers while non-matching blockquotes remain regular `<blockquote>` output.
   - Keep regression coverage for header/footer PDF options so supplying only one template does not inject unexpected default content in the other region.
   - Keep regression coverage for output format behavior: `.md/.markdown` link rewrite targets (`.pdf` vs `.html`) and HTML-mode CLI output path validation/collision semantics.
