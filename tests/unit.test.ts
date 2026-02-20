@@ -17,6 +17,18 @@ import { verifyRuntimeAssets } from '../src/assets/manager.js';
 import { normalizePaperFormat, normalizeTocDepth, parseMargin } from '../src/utils/validation.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const writeRuntimeAssetFixture = async (cacheDir: string): Promise<void> => {
+  const runtimeDir = resolve(cacheDir, 'runtime-v1');
+  await mkdir(resolve(runtimeDir, 'mathjax/output'), { recursive: true });
+  await mkdir(resolve(runtimeDir, 'mathjax-newcm-font/chtml/woff2'), { recursive: true });
+  await mkdir(resolve(runtimeDir, 'mermaid'), { recursive: true });
+
+  await writeFile(resolve(runtimeDir, 'mathjax/tex-chtml.js'), '// ok');
+  await writeFile(resolve(runtimeDir, 'mathjax/output/chtml.js'), '// ok');
+  await writeFile(resolve(runtimeDir, 'mathjax-newcm-font/chtml.js'), '// ok');
+  await writeFile(resolve(runtimeDir, 'mathjax-newcm-font/chtml/woff2/mjx-ncm-n.woff2'), 'ok');
+  await writeFile(resolve(runtimeDir, 'mermaid/mermaid.min.js'), '// ok');
+};
 
 describe('Renderer', () => {
   let renderer: Renderer;
@@ -406,6 +418,32 @@ describe('Renderer', () => {
     expect(maxInUsePages).toBe(1);
   });
 
+  it('keeps document routes alive across cache-dir scoped render servers', async () => {
+    const rendererWithDirectServerAccess = new Renderer();
+
+    // @ts-expect-error private method access for lifecycle regression coverage
+    const serverA = await rendererWithDirectServerAccess.getRenderServer('/tmp/convpdf-cache-a');
+    const docA = serverA.registerDocument();
+    docA.setHtml('<!doctype html><html><body>A</body></html>');
+
+    // @ts-expect-error private method access for lifecycle regression coverage
+    const serverB = await rendererWithDirectServerAccess.getRenderServer('/tmp/convpdf-cache-b');
+    const docB = serverB.registerDocument();
+    docB.setHtml('<!doctype html><html><body>B</body></html>');
+
+    const htmlA = await (await fetch(docA.url)).text();
+    const htmlB = await (await fetch(docB.url)).text();
+    const htmlAAfter = await (await fetch(docA.url)).text();
+
+    expect(htmlA).toContain('<body>A</body>');
+    expect(htmlB).toContain('<body>B</body>');
+    expect(htmlAAfter).toContain('<body>A</body>');
+
+    docA.dispose();
+    docB.dispose();
+    await rendererWithDirectServerAccess.close();
+  });
+
   it('detects mermaid syntax independently', () => {
     expect(hasMermaidSyntax('```mermaid\ngraph LR;\nA-->B;\n```')).toBe(true);
     expect(hasMermaidSyntax('```js\nconsole.log("plain");\n```')).toBe(false);
@@ -465,21 +503,35 @@ describe('Asset resolution', () => {
     }
   });
 
+  it('re-evaluates fallback resolutions after runtime assets are installed', async () => {
+    const dir = await mkdtemp(resolve(tmpdir(), 'convpdf-assets-refresh-'));
+    try {
+      const first = await resolveRuntimeAssetSources({
+        mode: 'auto',
+        cacheDir: dir,
+        allowNetworkFallback: true
+      });
+      expect(first.mathJaxSrc).toBe(CDN_MATHJAX_SRC);
+      expect(first.mermaidSrc).toBe(CDN_MERMAID_SRC);
+
+      await writeRuntimeAssetFixture(dir);
+
+      const second = await resolveRuntimeAssetSources({
+        mode: 'auto',
+        cacheDir: dir,
+        allowNetworkFallback: true
+      });
+      expect(second.mathJaxSrc.startsWith('file://')).toBe(true);
+      expect(second.mermaidSrc.startsWith('file://')).toBe(true);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it('validates runtime font package layout with at least one woff2 font', async () => {
     const dir = await mkdtemp(resolve(tmpdir(), 'convpdf-assets-verify-'));
-    const runtimeDir = resolve(dir, 'runtime-v1');
-
     try {
-      await mkdir(resolve(runtimeDir, 'mathjax/output'), { recursive: true });
-      await mkdir(resolve(runtimeDir, 'mathjax-newcm-font/chtml/woff2'), { recursive: true });
-      await mkdir(resolve(runtimeDir, 'mermaid'), { recursive: true });
-
-      await writeFile(resolve(runtimeDir, 'mathjax/tex-chtml.js'), '// ok');
-      await writeFile(resolve(runtimeDir, 'mathjax/output/chtml.js'), '// ok');
-      await writeFile(resolve(runtimeDir, 'mathjax-newcm-font/chtml.js'), '// ok');
-      await writeFile(resolve(runtimeDir, 'mathjax-newcm-font/chtml/woff2/mjx-ncm-n.woff2'), 'ok');
-      await writeFile(resolve(runtimeDir, 'mermaid/mermaid.min.js'), '// ok');
-
+      await writeRuntimeAssetFixture(dir);
       await expect(verifyRuntimeAssets(dir)).resolves.toBeDefined();
     } finally {
       await rm(dir, { recursive: true, force: true });

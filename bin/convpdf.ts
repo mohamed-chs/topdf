@@ -136,10 +136,8 @@ class ConversionQueue {
           try {
             await convert(filePath);
             consecutiveFailures = 0;
-          } catch (error: unknown) {
+          } catch {
             consecutiveFailures += 1;
-            const message = error instanceof Error ? error.message : String(error);
-            console.error(chalk.red('Queue error:'), message);
             if (consecutiveFailures >= MAX_WATCH_RETRIES && !this.needsRerun.has(filePath)) {
               console.error(
                 chalk.yellow(
@@ -797,7 +795,7 @@ const runConvertCli = async (): Promise<void> => {
           progressBar.start(files.length, 0, { file: '' });
         }
 
-        const convert = async (filePath: string): Promise<void> => {
+        const convert = async (filePath: string, mode: 'batch' | 'watch'): Promise<void> => {
           const inputPath = resolve(filePath);
           const relInput = relative(process.cwd(), inputPath);
 
@@ -880,10 +878,16 @@ const runConvertCli = async (): Promise<void> => {
               process.stderr.write('\n');
             }
             console.error(chalk.red(`Failed (${relInput}): ${message}`));
+            if (mode === 'watch') {
+              if (error instanceof Error) {
+                throw error;
+              }
+              throw new Error(message, { cause: error });
+            }
           }
         };
 
-        await Promise.all(files.map((filePath) => limit(() => convert(filePath))));
+        await Promise.all(files.map((filePath) => limit(() => convert(filePath, 'batch'))));
 
         if (!options.watch) {
           if (progressBar) {
@@ -954,7 +958,7 @@ const runConvertCli = async (): Promise<void> => {
               )}`
             )
           );
-          queue.enqueue(absoluteChangedPath, convert);
+          queue.enqueue(absoluteChangedPath, (filePath) => convert(filePath, 'watch'));
         });
 
         // Keep the command alive in watch mode even when chokidar has no active fs handles yet.

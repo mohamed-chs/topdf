@@ -42,7 +42,7 @@
 - **`src/renderer.ts`**: The **ORCHESTRATOR**. Coordinates markdown parsing, HTML assembly, browser rendering, and PDF generation.
   - HTML mode should continue to use `renderHtml(...)` directly without launching a browser, while PDF mode uses Puppeteer.
   - PDF generation must compile markdown exactly once per document (avoid duplicate parse/tokenize/template work inside the PDF flow).
-  - PDF rendering serves in-memory HTML via a renderer-scoped localhost server reused across conversions; keep deterministic server lifecycle management and cache-dir-aware reinitialization.
+  - PDF rendering serves in-memory HTML via renderer-scoped localhost server instances keyed by effective asset cache directory; keep deterministic lifecycle management so concurrent conversions with different cache roots never invalidate each other's active document routes.
   - Each PDF job must use a unique document route (`/document/<id>.html`) and source route namespace (`/__convpdf_source/<id>/...`) so concurrent conversions remain isolated.
   - Local runtime assets are served from the same localhost origin during PDF rendering to avoid cross-origin issues with MathJax/Mermaid/font loading.
   - Localhost runtime-asset responses should remain browser-cacheable and memory-cached server-side to reduce repeated filesystem reads in batch conversions.
@@ -60,7 +60,7 @@
   - Keep `manager.ts` exports minimal and operational (no unused helper exports); resolve file URLs at call sites unless reused by multiple runtime paths.
   - Runtime verification should validate NewCM font package structure (`chtml.js` plus non-empty `chtml/woff2`) rather than hard-coding one specific font filename.
   - `resolve.ts` maps asset policy (`auto|local|cdn`) to concrete script/font URLs (local cache, localhost-served, or CDN).
-  - `resolve.ts` should memoize resolution results (including local-install checks) per effective policy/config tuple to avoid repeated filesystem probing during batch renders.
+  - `resolve.ts` should memoize resolution results (including local-install checks) per effective policy/config tuple to avoid repeated filesystem probing during batch renders, but fallback-to-CDN resolutions caused by missing local assets must remain non-sticky so newly installed assets are picked up without restarting the process.
   - `allowNetworkFallback: false` is strict for both `auto` and `local`; missing local assets must fail fast with an actionable install command.
   - Asset downloads must be timeout-bounded, and install/clean operations must be lock-serialized per cache root to avoid concurrent staging races.
 - **`src/markdown/`**: Markdown pipeline modules:
@@ -95,6 +95,7 @@
   - Keep regression coverage for output format behavior: `.md/.markdown` link rewrite targets (`.pdf` vs `.html`) and HTML-mode CLI output path validation/collision semantics.
   - Keep regression coverage that generated HTML uses non-absolute `<base href>` values and that generated PDFs rewrite `file:///...` link annotations to relative paths.
   - Keep regression coverage for asset policy behavior (`auto/local/cdn`) and asset lifecycle command UX (`assets install|verify|update|clean`).
+  - Keep regression coverage for renderer localhost lifecycle with cache-dir-keyed server reuse and for in-process asset-resolution refresh after runtime assets are installed.
 - **`examples/`**: Canonical real-world scenarios and fidelity probes used for **BOTH DOCUMENTATION AND REGRESSION TESTING**.
   - The exhaustive suite lives directly under `examples/`. Keep scenarios focused and non-overlapping:
     - `core-features.md`: baseline markdown features, emoji, wrapping stress, page breaks, and cross-file navigation.

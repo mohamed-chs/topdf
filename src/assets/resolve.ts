@@ -29,7 +29,19 @@ const resolveInstalledCached = (cacheDir?: string): Promise<boolean> => {
   const cached = runtimeInstalledCache.get(cacheKey);
   if (cached) return cached;
 
-  const checkPromise = isRuntimeInstalled(cacheDir);
+  const checkPromise = isRuntimeInstalled(cacheDir)
+    .then((installed) => {
+      // Cache only positive checks so newly-installed assets are picked up without
+      // requiring a process restart.
+      if (!installed) {
+        runtimeInstalledCache.delete(cacheKey);
+      }
+      return installed;
+    })
+    .catch((error: unknown) => {
+      runtimeInstalledCache.delete(cacheKey);
+      throw error;
+    });
   runtimeInstalledCache.set(cacheKey, checkPromise);
   return checkPromise;
 };
@@ -62,7 +74,7 @@ export const resolveRuntimeAssetSources = async (
   const cached = runtimeAssetResolutionCache.get(cacheKey);
   if (cached) return cached;
 
-  const resolutionPromise = (async (): Promise<RuntimeAssetResolution> => {
+  const cachedPromise = (async (): Promise<RuntimeAssetResolution> => {
     if (mode === 'cdn') {
       return {
         mathJaxSrc: CDN_MATHJAX_SRC,
@@ -99,16 +111,19 @@ export const resolveRuntimeAssetSources = async (
         ? 'Local runtime assets were not found. Falling back to CDN assets.'
         : undefined;
 
-    return {
+    const fallbackResolution = {
       mathJaxSrc: CDN_MATHJAX_SRC,
       mermaidSrc: CDN_MERMAID_SRC,
       warning: allowNetworkFallback ? warning : undefined
     };
+    // Missing-local fallback is not cached so installs in the same process
+    // immediately switch to local assets.
+    runtimeAssetResolutionCache.delete(cacheKey);
+    return fallbackResolution;
   })();
-
-  runtimeAssetResolutionCache.set(cacheKey, resolutionPromise);
+  runtimeAssetResolutionCache.set(cacheKey, cachedPromise);
   try {
-    return await resolutionPromise;
+    return await cachedPromise;
   } catch (error) {
     runtimeAssetResolutionCache.delete(cacheKey);
     throw error;

@@ -521,8 +521,7 @@ const createRenderServer = async (options: {
 export class Renderer {
   private options: RendererOptions;
   private browser: Browser | null = null;
-  private renderServer: RenderHttpServer | null = null;
-  private renderServerAssetCacheDir: string | null = null;
+  private readonly renderServers = new Map<string, RenderHttpServer>();
   private readonly cssCache = new Map<string, Promise<string>>();
   private initializing: Promise<void> | null = null;
   private activePages = 0;
@@ -559,10 +558,14 @@ export class Renderer {
   }
 
   async close(): Promise<void> {
-    if (this.renderServer) {
-      await this.renderServer.close();
-      this.renderServer = null;
-      this.renderServerAssetCacheDir = null;
+    if (this.renderServers.size > 0) {
+      const servers = [...this.renderServers.values()];
+      this.renderServers.clear();
+      await Promise.all(
+        servers.map(async (server) => {
+          await server.close();
+        })
+      );
     }
     if (!this.browser) return;
     await this.browser.close();
@@ -603,20 +606,15 @@ export class Renderer {
   }
 
   private async getRenderServer(assetCacheDir?: string): Promise<RenderHttpServer> {
-    const requestedCacheDir = assetCacheDir ? resolve(assetCacheDir) : null;
-    if (this.renderServer && this.renderServerAssetCacheDir === requestedCacheDir) {
-      return this.renderServer;
+    const requestedCacheDir = assetCacheDir ? resolve(assetCacheDir) : '';
+    const existingServer = this.renderServers.get(requestedCacheDir);
+    if (existingServer) {
+      return existingServer;
     }
 
-    if (this.renderServer) {
-      await this.renderServer.close();
-      this.renderServer = null;
-      this.renderServerAssetCacheDir = null;
-    }
-
-    this.renderServer = await createRenderServer({ assetCacheDir });
-    this.renderServerAssetCacheDir = requestedCacheDir;
-    return this.renderServer;
+    const createdServer = await createRenderServer({ assetCacheDir });
+    this.renderServers.set(requestedCacheDir, createdServer);
+    return createdServer;
   }
 
   private async readCustomCss(pathValue?: string | null): Promise<string> {
@@ -652,7 +650,8 @@ export class Renderer {
       mathJaxBaseUrl?: string;
       mathJaxFontBaseUrl?: string;
       warning?: string;
-    }
+    },
+    runtimeServerBaseUrl?: string
   ): Promise<string> {
     const parsedFrontmatter = parseFrontmatter(markdown);
     const { data, content } = parsedFrontmatter;
@@ -663,7 +662,7 @@ export class Renderer {
     const runtimeUsage = { math: hasMathSyntax(content), mermaid: hasMermaidSyntax(content) };
     const runtimeAssets =
       runtimeAssetsOverride ??
-      (await resolveRuntimeAssetPlan(opts, runtimeUsage, this.renderServer?.baseUrl));
+      (await resolveRuntimeAssetPlan(opts, runtimeUsage, runtimeServerBaseUrl));
     if (runtimeAssets.warning) {
       console.warn(runtimeAssets.warning);
     }
@@ -762,11 +761,16 @@ export class Renderer {
       renderServerBaseUrl = renderServer.baseUrl;
       documentHandle = renderServer.registerDocument(opts.basePath);
 
-      const html = await this.buildRenderedDocument(markdown, {
-        ...opts,
-        basePath: undefined,
-        baseHref: documentHandle.sourceBaseUrl ?? opts.baseHref
-      });
+      const html = await this.buildRenderedDocument(
+        markdown,
+        {
+          ...opts,
+          basePath: undefined,
+          baseHref: documentHandle.sourceBaseUrl ?? opts.baseHref
+        },
+        undefined,
+        renderServer.baseUrl
+      );
       documentHandle.setHtml(html);
 
       await page.emulateMediaType('print');
