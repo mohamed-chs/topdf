@@ -61,25 +61,25 @@
     "marked": "^17.0.1",
     "marked-footnote": "^1.4.0",
     "marked-highlight": "^2.2.3",
-    "minimatch": "^10.2.1",
+    "minimatch": "^10.2.2",
     "p-limit": "^7.3.0",
     "pdf-lib": "^1.17.1",
     "puppeteer": "^24.37.2",
     "tar": "^7.5.9"
   },
   "devDependencies": {
-    "@eslint/js": "^9.39.2",
+    "@eslint/js": "^10.0.1",
     "@types/cli-progress": "^3.11.6",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^25.2.3",
     "@vitest/coverage-v8": "^4.0.18",
-    "eslint": "^9.39.2",
+    "eslint": "^10.0.0",
     "eslint-config-prettier": "^10.1.8",
     "globals": "^17.3.0",
     "prettier": "^3.8.1",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.55.0",
+    "typescript-eslint": "^8.56.0",
     "vitest": "^4.0.18"
   }
 }

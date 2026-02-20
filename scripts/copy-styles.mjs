@@ -18,5 +18,5 @@ try {
   );
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);
-  throw new Error(`Failed to copy style assets: ${message}`);
+  throw new Error(`Failed to copy style assets: ${message}`, { cause: error });
 }
